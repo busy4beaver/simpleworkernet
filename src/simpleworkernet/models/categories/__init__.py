@@ -32,6 +32,9 @@ from .splitter import Splitter
 from .system import System
 from .tariff import Tariff
 from .task import Task
+from .trader import Trader
+from .vehicle import Vehicle
+from .vlan import Vlan
 
 __all__ = [
     'Address',
@@ -63,4 +66,7 @@ __all__ = [
     'System',
     'Tariff',
     'Task',
+    'Trader',
+    'Vehicle',
+    'Vlan'
 ]

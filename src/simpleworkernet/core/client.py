@@ -44,6 +44,9 @@ from ..models.categories.splitter import Splitter
 from ..models.categories.system import System
 from ..models.categories.tariff import Tariff
 from ..models.categories.task import Task
+from ..models.categories.trader import Trader
+from ..models.categories.vehicle import Vehicle
+from ..models.categories.vlan import Vlan
 
 
 class WorkerNetClient:
@@ -130,6 +133,9 @@ class WorkerNetClient:
         self.System = System(self)
         self.Tariff = Tariff(self)
         self.Task = Task(self)
+        self.Trader = Trader(self)
+        self.Vehicle = Vehicle(self)
+        self.Vlan = Vlan(self)
     
     def _encode_str(self, data: Any) -> Any:
         """

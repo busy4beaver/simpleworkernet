@@ -898,3 +898,7 @@ class SmartData(Generic[T]):
     def __repr__(self) -> str:
         """Строковое представление объекта."""
         return f"SmartData[{self._model_type}](count={len(self._raw_items)}, models_created={sum(1 for m in self._cached_models if m is not None)})"
+
+    # def __repr__(self) -> str:
+    #     """Строковое представление объекта."""
+    #     return f"SmartData[{self._model_type}](count={len(self._raw_items)}, {self._raw_items})"

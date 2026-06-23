@@ -245,13 +245,13 @@ class Task(BaseCategory):
         additional_field_finalize: List[int]
         special_type: Any
         @smart_model
-        class Tmescale(BaseModel):
+        class Timescale(BaseModel):
             add_task_additional_hour: int
             must_doing_hour_after_add: int
             hour_on_doing: int
             notify_hour_before_deadline: Any
             notify_hour_before_finish: Any
-        timescale: Tmescale
+        timescale: Timescale
         @smart_model
         class Access(BaseModel):
             is_add: bool
