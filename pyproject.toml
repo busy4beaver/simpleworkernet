@@ -31,7 +31,6 @@ cleanup-simpleworkernet = "simpleworkernet.cli:main"
 [project.urls]
 Homepage = "https://github.com/BusyBeaver54/simpleworkernet"
 Repository = "https://github.com/BusyBeaver54/simpleworkernet"
-Bug Tracker = "https://github.com/BusyBeaver54/simpleworkernet/issues"
 Documentation = "https://github.com/BusyBeaver54/simpleworkernet#readme"
 
 [tool.setuptools.packages.find]
