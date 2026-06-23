@@ -52,13 +52,20 @@ class DataProcessor:
             'nested_lists_unpacked': 0,
             'models_created': 0
         }
+
+    @staticmethod
+    def process_item(item: Any, target_type: Type, max_depth: int = 100) -> Any:
+        processor = DataProcessor(max_depth)
+        result = processor.process(item, target_type)
+        return result.items[0] if result.items else None
     
     # ------------------------------------------------------------------------
     # Основной метод обработки
     # ------------------------------------------------------------------------
     @timer()
     def process(self, data: Any, target_type: Optional[Type] = None,
-                cache_func: Optional[Callable] = None) -> ProcessingResult:
+                cache_func: Optional[Callable] = None,
+                cast_to_models: bool = True) -> ProcessingResult:
         """
         Основной метод обработки данных.
         """
@@ -86,12 +93,12 @@ class DataProcessor:
         
         flat_items = helpers.flatten_list(model_aware_items, self.max_depth)
         
-        # Фаза 2: Кастинг в модели
-        if target_type and target_type is not Any:
+        # Фаза 2: Кастинг в модели (только если cast_to_models=True)
+        if cast_to_models and target_type and target_type is not Any:
             final_items = self._cast_to_models(flat_items, target_type, metadata_registry)
         else:
             final_items = flat_items
-        
+            
         log.debug(f"Обработка завершена: {len(final_items)} объектов")
         return ProcessingResult(items=final_items, stats=self._stats.copy())
     

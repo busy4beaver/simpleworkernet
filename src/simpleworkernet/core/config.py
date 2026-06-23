@@ -376,7 +376,8 @@ class ConfigManager:
     def _apply_changes(self, old: WorkerNetConfig, new: WorkerNetConfig):
         """Применяет изменения конфигурации к компонентам"""
         # Применяем настройки логирования, если они изменились
-        if (old.log_level != new.log_level or
+        if ( old.console_level != new.console_level or
+            old.file_level != new.file_level or
             old.log_to_file != new.log_to_file or
             old.console_output != new.console_output or
             old.max_log_files != new.max_log_files):
@@ -480,7 +481,8 @@ class ConfigManager:
             f"Директория логов: {self.logs_dir}",
             "-" * 60,
             "ЛОГИРОВАНИЕ:",
-            f"  Уровень: {config_dict['log_level']}",
+            f"  Уровень файл: {config_dict['file_level']}",
+            f"  Уровень консоль: {config_dict['console_level']}",
             f"  В файл: {config_dict['log_to_file']}",
             f"  В консоль: {config_dict['console_output']}",
             f"  Макс. файлов: {config_dict['max_log_files']}",
