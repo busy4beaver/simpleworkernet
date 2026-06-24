@@ -17,7 +17,17 @@ from typing import Optional, Union, Tuple, List, Dict, Any, Literal
 from datetime import datetime
 import html
 
-from ..core.logger import log
+
+_logger = None
+
+def _get_logger():
+    """Ленивый импорт логгера"""
+    global _logger
+    if _logger is None:
+        from ..core.logger import log
+        _logger = log
+    return _logger
+
 from ..core.exceptions import GraphicsError, SVGValidationError
 
 # ==================== Условный импорт библиотек ====================
@@ -129,7 +139,7 @@ class SVGHandler:
         self._height: float = 0.0
         self._is_valid_svg: bool = False
         self._strict = strict
-        
+        _get_logger()
         if data is not None:
             self.load(data, validate)
     
@@ -155,19 +165,19 @@ class SVGHandler:
             with open(path, 'rb') as f:
                 self._data = f.read()
             self._source = str(path)
-            log.debug(f"Данные загружены из файла: {path} ({len(self._data)} байт)")
+            _logger.debug(f"Данные загружены из файла: {path} ({len(self._data)} байт)")
             
         elif isinstance(data, str):
             # Строка с данными
             self._data = data.encode('utf-8')
             self._source = "string"
-            log.debug(f"Данные загружены из строки ({len(self._data)} байт)")
+            _logger.debug(f"Данные загружены из строки ({len(self._data)} байт)")
             
         elif isinstance(data, bytes):
             # Байты с данными
             self._data = data
             self._source = "bytes"
-            log.debug(f"Данные загружены из байтов ({len(self._data)} байт)")
+            _logger.debug(f"Данные загружены из байтов ({len(self._data)} байт)")
             
         else:
             raise GraphicsError(f"Неподдерживаемый тип данных: {type(data)}")
@@ -186,7 +196,7 @@ class SVGHandler:
         if self._is_valid_svg:
             self._extract_metadata()
         else:
-            log.warning("Загруженные данные не являются SVG, метаданные не извлекаются")
+            _logger.warning("Загруженные данные не являются SVG, метаданные не извлекаются")
         
         return self
     
@@ -255,7 +265,7 @@ class SVGHandler:
         with open(path, 'wb') as f:
             f.write(self._data)
         
-        log.info(f"Данные сохранены в {path} ({len(self._data)} байт)")
+        _logger.info(f"Данные сохранены в {path} ({len(self._data)} байт)")
         return path
     
     def save_auto(self, prefix: str = "scheme", directory: Optional[Union[str, Path]] = None,
@@ -371,7 +381,7 @@ class SVGHandler:
                     height = max_y
             
         except Exception as e:
-            log.warning(f"Не удалось извлечь размеры из SVG: {e}")
+            _logger.warning(f"Не удалось извлечь размеры из SVG: {e}")
         
         return width, height
     
@@ -411,7 +421,7 @@ class SVGHandler:
             self._metadata['hash'] = hashlib.md5(self._data).hexdigest()[:8]
             
         except Exception as e:
-            log.warning(f"Не удалось извлечь метаданные из SVG: {e}")
+            _logger.warning(f"Не удалось извлечь метаданные из SVG: {e}")
     
     # ==================== Подготовка SVG для конвертации ====================
     
@@ -551,7 +561,7 @@ class SVGHandler:
                     img.resize(int(img.width * scale), int(img.height * scale))
                 img.save(filename=str(output_path))
             
-            log.info(f"SVG сконвертирован в PNG (Wand): {output_path}")
+            _logger.info(f"SVG сконвертирован в PNG (Wand): {output_path}")
             
         except Exception as e:
             raise GraphicsError(f"Ошибка Wand: {e}")
@@ -599,7 +609,7 @@ class SVGHandler:
                 scale=scale,
                 dpi=dpi
             )
-            log.info(f"SVG сконвертирован в PNG (Cairo): {output_path}")
+            _logger.info(f"SVG сконвертирован в PNG (Cairo): {output_path}")
         except Exception as e:
             raise GraphicsError(f"Ошибка CairoSVG: {e}")
         
@@ -652,7 +662,7 @@ class SVGHandler:
             if result.returncode != 0:
                 raise GraphicsError(f"Ошибка Inkscape: {result.stderr}")
             
-            log.info(f"SVG сконвертирован в PNG (Inkscape): {output_path}")
+            _logger.info(f"SVG сконвертирован в PNG (Inkscape): {output_path}")
             
         except Exception as e:
             raise GraphicsError(f"Ошибка Inkscape: {e}")
@@ -709,7 +719,7 @@ class SVGHandler:
         
         try:
             HTML(str(temp_html)).write_png(str(output_path), scale=scale)
-            log.info(f"SVG сконвертирован в PNG (WeasyPrint): {output_path}")
+            _logger.info(f"SVG сконвертирован в PNG (WeasyPrint): {output_path}")
         except Exception as e:
             raise GraphicsError(f"Ошибка WeasyPrint: {e}")
         finally:
@@ -777,7 +787,7 @@ class SVGHandler:
         plt.savefig(output_path, format='png', dpi=dpi, bbox_inches='tight', pad_inches=0)
         plt.close()
         
-        log.info(f"SVG сконвертирован в PNG (matplotlib, информационная заглушка): {output_path}")
+        _logger.info(f"SVG сконвертирован в PNG (matplotlib, информационная заглушка): {output_path}")
         return output_path
     
     def to_png(self, output_path: Union[str, Path], 
@@ -826,7 +836,7 @@ class SVGHandler:
             debug_path = Path(output_path).with_suffix('.debug.svg')
             with open(debug_path, 'w', encoding='utf-8') as f:
                 f.write(svg_str)
-            log.info(f"Промежуточный SVG сохранён: {debug_path}")
+            _logger.info(f"Промежуточный SVG сохранён: {debug_path}")
         
         # Проверяем размеры и при необходимости корректируем масштаб
         if max_size and fit_to_size and self._width > 0 and self._height > 0:
@@ -837,26 +847,26 @@ class SVGHandler:
             
             if scale_factor < 1:
                 scale *= scale_factor
-                log.debug(f"Размер SVG {self._width}x{self._height} превышает лимит, применяем масштаб {scale_factor}")
+                _logger.debug(f"Размер SVG {self._width}x{self._height} превышает лимит, применяем масштаб {scale_factor}")
         
         # Выбор метода
         if method == 'auto':
             # Приоритет: wand (ImageMagick) -> cairo -> inkscape -> weasyprint -> matplotlib
             if WAND_AVAILABLE:
                 method = 'wand'
-                log.debug("Автовыбор: Wand (ImageMagick)")
+                _logger.debug("Автовыбор: Wand (ImageMagick)")
             elif CAIRO_AVAILABLE:
                 method = 'cairo'
-                log.debug("Автовыбор: CairoSVG")
+                _logger.debug("Автовыбор: CairoSVG")
             elif INKSCAPE_AVAILABLE:
                 method = 'inkscape'
-                log.debug("Автовыбор: Inkscape")
+                _logger.debug("Автовыбор: Inkscape")
             elif WEASYPRINT_AVAILABLE:
                 method = 'weasyprint'
-                log.debug("Автовыбор: WeasyPrint")
+                _logger.debug("Автовыбор: WeasyPrint")
             elif MATPLOTLIB_AVAILABLE:
                 method = 'matplotlib'
-                log.debug("Автовыбор: matplotlib (информационная заглушка)")
+                _logger.debug("Автовыбор: matplotlib (информационная заглушка)")
             else:
                 raise GraphicsError(
                     "Нет доступных методов конвертации. Установите один из:\n"
@@ -942,7 +952,7 @@ class SVGHandler:
             height: Высота в пикселях
         """
         if not IPYTHON_AVAILABLE:
-            log.warning("IPython не доступен, невозможно отобразить SVG")
+            _logger.warning("IPython не доступен, невозможно отобразить SVG")
             return
         
         svg_html = self.to_html(width, height)
@@ -1031,7 +1041,7 @@ class ImageHandler:
         self._data = data
         self._format = None
         self._metadata = {}
-        
+        _get_logger()
         if data is not None:
             self._detect_format()
     
@@ -1068,7 +1078,7 @@ class ImageHandler:
         with open(path, 'wb') as f:
             f.write(self._data)
         
-        log.info(f"Изображение сохранено в {path}")
+        _logger.info(f"Изображение сохранено в {path}")
         return path
     
     @property
