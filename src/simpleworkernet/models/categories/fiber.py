@@ -9,6 +9,8 @@ from ...utils.decorators import api_method
 class Fiber(BaseCategory):
     """Кабельные линии"""
 
+    link_cat = 'cable_line'
+
     @overload
     def add(self, *, 
             object_a_id: int, 

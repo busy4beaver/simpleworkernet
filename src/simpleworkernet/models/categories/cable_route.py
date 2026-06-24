@@ -8,6 +8,8 @@ from ...utils.decorators import api_method
 class Cable_route(BaseCategory):
     """Кабельные трассы и каналы"""
 
+    link_cat = 'duct'
+
     class In_type(IntEnum):
         """ID типов начальных и конечных объектов трассы"""
         customer=1

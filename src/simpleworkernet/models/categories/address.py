@@ -7,6 +7,8 @@ from ...utils.decorators import api_method
 class Address(BaseCategory):
     """Действие с адресами"""
 
+    link_cat = 'building'
+
     @api_method(int)
     def add_locality_type(self, *, name: str, token: str) -> ApiRetSData[int]: 
         """Добавление типа адресной единицы

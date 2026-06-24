@@ -8,6 +8,8 @@ from ...utils.decorators import api_method, deprecated
 class Task(BaseCategory):
     """Работа с заданиями"""
 
+    link_cat = 'task'
+
     @api_method(int)
     def add(self, *, 
             work_typer: int, 

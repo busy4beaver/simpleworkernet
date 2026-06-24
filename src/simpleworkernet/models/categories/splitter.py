@@ -8,6 +8,8 @@ from ...utils.decorators import api_method, deprecated
 class Splitter(BaseCategory):
     """Делители/Уплотнители"""
 
+    link_cat = 'splitter'
+
     @smart_model
     class Get(BaseModel):
         id: int

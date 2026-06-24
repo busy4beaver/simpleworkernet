@@ -8,6 +8,8 @@ from ...utils.decorators import api_method
 class Cross(BaseCategory):
     """ODF/Кроссы"""
 
+    link_cat = 'cross'
+
     @api_method(str)
     def add(self, *, node_id: int, port_count: int, description: str = None, is_planned: vFlag = None) -> ApiRetSData[int]:
         """Добавление кросса

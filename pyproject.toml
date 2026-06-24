@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simpleworkernet"
-version = "0.0.3b35"
+version = "0.0.3b36"
 description = "Python клиент для API WorkerNet с поддержкой SmartData"
 readme = "README.md"
 authors = [
@@ -29,9 +29,10 @@ keywords = ["workernet", "api", "client", "billing", "provider", "smartdata"]
 cleanup-simpleworkernet = "simpleworkernet.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/BusyBeaver54/simpleworkernet"
+Homepage = "https://github.com/BusyBeaver54"
 Repository = "https://github.com/BusyBeaver54/simpleworkernet"
 Documentation = "https://github.com/BusyBeaver54/simpleworkernet#readme"
+"Donate" = "https://boosty.to/busybeaver/donate"
 
 [tool.setuptools.packages.find]
 where = ["src"]

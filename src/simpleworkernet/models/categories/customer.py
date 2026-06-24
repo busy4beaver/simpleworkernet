@@ -9,6 +9,8 @@ from ...smartdata.metadata import SegmentType
 class Customer(BaseCategory):
     """Действия с абонентами"""
 
+    link_cat = 'customer'
+
     @api_method(int)
     def add(self, *, fio: str = None, codeti: int = None, is_potential: vFlag = None, is_corporate: vFlag = None, billing_id: int = None, billing_customer_id: int = None) -> ApiRetSData[int]:
         """Добавление абонента

@@ -8,6 +8,8 @@ from ...utils.decorators import api_method, deprecated
 class Node(BaseCategory):
     """Объекты инфраструктуры (узлы связи, муфты, опоры, колодцы)"""
 
+    link_cat = 'node'
+
     class In_type_id(IntEnum):
         """ID типов объектов инфраструктуры"""
         splice_closure = 1

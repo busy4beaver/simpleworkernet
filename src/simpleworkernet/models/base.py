@@ -573,6 +573,14 @@ class BaseCategory:
     def __init__(self, client: Any):
         self._client = client
         self._category = self.__class__.__name__.lower()
+
+    def get_link(self, id: int | str):
+        try:
+            cls = self.__class__
+            if hasattr(cls, 'link_cat') and cls.link_cat:
+                return f"{str(self._client._url.rstrip('/')).rsplit('/', 1)[0]}/{cls.link_cat}/{id}"
+        except: pass
+        return None
     
     def _request(self, action: str, **params) -> Any:
         """Выполняет запрос к API."""

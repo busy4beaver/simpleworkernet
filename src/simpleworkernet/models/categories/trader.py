@@ -8,6 +8,8 @@ from ...utils.decorators import api_method, deprecated
 class Trader(BaseCategory):
     """Поставщики"""
 
+    link_cat = 'trader/show?id='
+
     @api_method(int)
     def add(self, *, name: str) -> ApiRetSData[int]:
         """Добавление 

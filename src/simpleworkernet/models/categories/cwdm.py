@@ -8,6 +8,8 @@ from ...utils.decorators import api_method
 class Cwdm(BaseCategory):
     """CWDM"""
 
+    link_cat = 'cwdm'
+
     @smart_model
     class Get(BaseModel):
         id: int

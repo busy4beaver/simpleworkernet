@@ -8,6 +8,8 @@ from ...utils.decorators import api_method
 class Employee(BaseCategory):
     """Сотрудники"""
 
+    link_cat = 'employee'
+
     @api_method(bool)
     def add_notification(self, *, employee_id: int, body: str, color: str = None) -> ApiRetBool: 
         """Создание PUSH-уведомления для сотрудника

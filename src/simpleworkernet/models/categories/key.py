@@ -8,6 +8,8 @@ from ...utils.decorators import api_method
 class Key(BaseCategory):
     """Ключи"""
 
+    link_cat = 'keys'
+
     @overload
     def add(self, *, name: str, building_id: int = None, comment: str = None): ...
     @overload

@@ -7,6 +7,8 @@ from ...utils.decorators import api_method, deprecated
 
 class Vlan(BaseCategory):
     """Vlan"""
+
+    link_cat = 'vlan/show?vid='
     
     @api_method(int)
     def add(self, *, vid: int, name: str, comment: str = None) -> ApiRetSData[int]:

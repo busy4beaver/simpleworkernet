@@ -8,6 +8,8 @@ from ...utils.decorators import api_method, deprecated
 class Vehicle(BaseCategory):
     """Автотранспорт"""
     
+    link_cat = 'transport'
+
     @smart_model
     class Get(BaseModel):
         id: int

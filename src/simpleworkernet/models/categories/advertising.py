@@ -6,6 +6,8 @@ from ...utils.decorators import api_method
 class Advertising(BaseCategory):
     """Рекламные кампании"""
 
+    link_cat = 'advert'
+
     @api_method(bool)
     def add_customer(self, *, advert_id: int, customer_id: int) -> ApiRetBool: 
         """Добавление рекламной кампании абоненту
