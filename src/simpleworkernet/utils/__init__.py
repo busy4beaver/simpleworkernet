@@ -34,7 +34,7 @@ from .graphics import (
     svg_to_png,
 )
 
-from .topology import CommutationGraph
+from .topology import CommutationGraph, FNGraph
 
 __all__ = [
     'api_method',
@@ -60,4 +60,5 @@ __all__ = [
     'is_svg',
     'svg_to_png',
     'CommutationGraph', 
+    'FNGraph', 
 ]
