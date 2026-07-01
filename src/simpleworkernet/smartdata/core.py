@@ -16,18 +16,6 @@
   для сериализации в JSON/Pickle/Gzip.
 - Поддержка точечной нотации для доступа к полям всех элементов (возвращает список значений).
 - Полная совместимость со статической типизацией и автодополнением в IDE.
-
-Пример использования:
-    data = client.Customer.get_data(customer_id=1001)  # возвращает SmartData[Customer.Get_data]
-    # Фильтрация на сырых данных (быстро)
-    active = data.filter(Where('state_id', 2, Operator.EQ))
-    # Сортировка по полю
-    sorted_active = active.sort(key_field='full_name')
-    # Первое обращение к элементу создаёт модель
-    first = sorted_active[0]
-    print(first.full_name)
-    # Сериализация с восстановлением структуры
-    sorted_active.to_file('active_customers.json')
 """
 
 import json
@@ -97,14 +85,14 @@ class SmartData(Generic[T]):
                 data=data,
                 target_type=target_type,
                 cache_func=self._is_valid_field_name,
-                cast_to_models=False  # Не создаём модели, только структурируем
+                cast_to_models=False
             )
 
             self._raw_items = result.items
             self._stats = result.stats
             self._cached_models = [None] * len(self._raw_items)
 
-            log.info(f"SmartData инициализирован: {len(self._raw_items)} элементов (модели не созданы)")
+            log.debug(f"SmartData инициализирован: {len(self._raw_items)} элементов (модели не созданы)")
         else:
             self._raw_items = []
             self._cached_models = []
@@ -120,9 +108,12 @@ class SmartData(Generic[T]):
     def _get_item(self, index: int) -> T:
         """
         Возвращает элемент по индексу, создавая модель при первом обращении.
+        Если модель уже создана, возвращает её из кэша.
 
-        Если модель уже создана, возвращает её из кэша. Если целевой тип Any,
-        возвращает сырой элемент без создания модели.
+        Особое внимание уделяется метаданным: если сырой элемент — словарь,
+        содержащий ключ META_KEY, то метаданные извлекаются и устанавливаются
+        в создаваемую модель, чтобы CollapsedField и другие механизмы
+        могли корректно работать.
 
         Args:
             index: Индекс элемента.
@@ -142,27 +133,37 @@ class SmartData(Generic[T]):
 
         raw_item = self._raw_items[index]
 
+        # Если целевой тип Any, возвращаем сырой элемент без создания модели
         if self._model_type is Any:
             self._cached_models[index] = raw_item
             return raw_item
 
         try:
+            # Если элемент уже является экземпляром нужного типа, просто сохраняем
             if isinstance(raw_item, self._model_type):
                 model = raw_item
             elif isinstance(raw_item, dict):
-                model = self._model_type(**raw_item)
+                # Извлекаем метаданные из словаря, чтобы передать их в модель отдельно
+                meta = raw_item.get(META_KEY)
+                # Создаём копию словаря без ключа META_KEY, чтобы не передавать его как поле модели
+                clean_data = {k: v for k, v in raw_item.items() if k != META_KEY}
+                model = self._model_type(**clean_data)
+                if meta is not None:
+                    setattr(model, META_KEY, meta)
             else:
+                # Для примитивов или других типов пробуем создать модель с одним аргументом
                 model = self._model_type(raw_item)
 
             self._cached_models[index] = model
             return model
         except Exception as e:
             log.error(f"Ошибка создания модели для элемента {index}: {e}")
+            # В случае ошибки сохраняем сырые данные как есть
             self._cached_models[index] = raw_item
             return raw_item
 
     def _ensure_all_processed(self) -> None:
-        """Принудительно создаёт модели для всех элементов"""
+        """Принудительно создаёт модели для всех элементов (используется для статистики и сериализации)."""
         if self._model_type is Any:
             return
         for i in range(len(self._raw_items)):
@@ -282,6 +283,7 @@ class SmartData(Generic[T]):
         Пример:
             data.filter(Where('state_id', 2, Operator.EQ), Where('balance', 0, Operator.GT))
         """
+        print(self._raw_items[0])
         if join.upper() == 'AND':
             filtered = [
                 item for item in self._raw_items
@@ -676,6 +678,34 @@ class SmartData(Generic[T]):
             else:
                 current[key] = value
 
+    # ------------------------------------------------------------------------
+    # Сериализация и доступ к данным
+    # ------------------------------------------------------------------------
+
+    def to_list(self) -> List[T]:
+        """
+        Возвращает список всех элементов в виде моделей.
+        При первом вызове создаёт все модели (лениво) и кэширует их.
+        Этот метод удобен для извлечения данных, когда нужны именно модели,
+        например, для доступа к атрибутам через точечную нотацию.
+
+        Returns:
+            Список моделей (экземпляров типа T).
+        """
+        self._ensure_all_processed()
+        return [m for m in self._cached_models if m is not None]
+
+    def to_raw_list(self) -> List[Any]:
+        """
+        Возвращает список сырых элементов (без создания моделей).
+        Полезно для быстрого доступа к исходным данным без накладных расходов
+        на создание моделей.
+
+        Returns:
+            Список сырых элементов (словари, списки, примитивы).
+        """
+        return self._raw_items.copy()
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Восстанавливает исходную структуру данных, используя метаданные из сырых элементов.
@@ -800,7 +830,7 @@ class SmartData(Generic[T]):
             with open(path, 'rb') as f:
                 data = pickle.load(f)
         elif path.suffix == '.gz':
-            with gzip.open(path, 'rb') as f:
+            with gzip.open(path, 'wb') as f:
                 data = pickle.load(f)
         else:
             raise ValueError(f"Неподдерживаемый формат: {path.suffix}")
@@ -874,7 +904,7 @@ class SmartData(Generic[T]):
         if isinstance(other, SmartData):
             combined = self._raw_items + other._raw_items
             return self._derive(combined)
-        raise TypeError(f"Нельзя объединить SmartData с {type(other)}")
+        raise TypeError(f"Нельзя сложить SmartData с {type(other)}")
 
     def __iadd__(self, other: Union['SmartData[T]', List[T]]) -> 'SmartData[T]':
         """Добавляет элементы из другого SmartData в текущий (изменяет текущий объект)."""
@@ -899,6 +929,3 @@ class SmartData(Generic[T]):
         """Строковое представление объекта."""
         return f"SmartData[{self._model_type}](count={len(self._raw_items)}, models_created={sum(1 for m in self._cached_models if m is not None)})"
 
-    # def __repr__(self) -> str:
-    #     """Строковое представление объекта."""
-    #     return f"SmartData[{self._model_type}](count={len(self._raw_items)}, {self._raw_items})"

@@ -72,6 +72,7 @@ else:
     from .smartdata.metadata import MetaData, PathSegment, SegmentType
     from .utils.decorators import api_method, logged_method, timer
     from .utils.graphics import save_svg, load_svg, svg_to_png
+    from .utils.topology import CommutationGraph
     from .scripts.uninstall import cleanup_with_confirmation, cleanup
 
     # ------------------------------------------------------------------------
@@ -303,5 +304,6 @@ else:
         'Operator', 'Where',
         'api_method', 'logged_method', 'timer',
         'additional_field', 'additional_data',
-        'save_svg', 'load_svg', 'svg_to_png'
+        'save_svg', 'load_svg', 'svg_to_png',
+        'CommutationGraph'
     ]

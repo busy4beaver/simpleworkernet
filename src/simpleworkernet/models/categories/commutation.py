@@ -50,9 +50,9 @@ class Commutation(BaseCategory):
         length_by_fiber: int = None
         is_geo_length: int = None
 
-        clps_num = CollapsedField()
-        clps_side = CollapsedField(pos=0)
-        clps_iface = CollapsedField(pos=1)
+        clps_first: CollapsedField = CollapsedField(pos=0)
+        clps_mid: CollapsedField = CollapsedField(pos=1)
+        clps_last: CollapsedField = CollapsedField()
 
     @api_method(Get_data)
     def get_data(self, *, object_type: Literal['customer','switch','radio','cross','fiber','splitter'], object_id: int = None, is_finish_data: vFlag = None) -> ApiRetSData[Get_data]:

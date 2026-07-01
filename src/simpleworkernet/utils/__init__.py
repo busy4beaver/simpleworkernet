@@ -34,6 +34,8 @@ from .graphics import (
     svg_to_png,
 )
 
+from .topology import CommutationGraph
+
 __all__ = [
     'api_method',
     'logged_method',
@@ -57,4 +59,5 @@ __all__ = [
     'load_svg',
     'is_svg',
     'svg_to_png',
+    'CommutationGraph', 
 ]

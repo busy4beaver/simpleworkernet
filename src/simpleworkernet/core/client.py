@@ -180,7 +180,7 @@ class WorkerNetClient:
         
         return params
     
-    @timer()
+    # @timer()
     def _make_request(self, params: Dict[str, Any]) -> requests.Response:
         """
         Выполняет HTTP запрос с поддержкой повторных попыток.
@@ -204,7 +204,9 @@ class WorkerNetClient:
                 url=self._url,
                 params=params
             ).prepare()
-            
+
+            # print(prepared.url)
+
             url_length = len(prepared.url)
             log.debug(f"Длина URL: {url_length} символов")
             
