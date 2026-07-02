@@ -36,6 +36,8 @@ from .graphics import (
 
 from .topology import CommutationGraph, FNGraph
 
+from .coordinates import geo_to_xy, geo_to_xyz, xy_to_geo
+
 __all__ = [
     'api_method',
     'logged_method',
@@ -61,4 +63,8 @@ __all__ = [
     'svg_to_png',
     'CommutationGraph', 
     'FNGraph', 
+
+    'geo_to_xy',
+    'geo_to_xyz',
+    'xy_to_geo',
 ]

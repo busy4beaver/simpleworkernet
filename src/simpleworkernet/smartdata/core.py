@@ -283,7 +283,7 @@ class SmartData(Generic[T]):
         Пример:
             data.filter(Where('state_id', 2, Operator.EQ), Where('balance', 0, Operator.GT))
         """
-        print(self._raw_items[0])
+
         if join.upper() == 'AND':
             filtered = [
                 item for item in self._raw_items
