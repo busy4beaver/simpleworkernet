@@ -205,8 +205,6 @@ class WorkerNetClient:
                 params=params
             ).prepare()
 
-            # print(prepared.url)
-
             url_length = len(prepared.url)
             log.debug(f"Длина URL: {url_length} символов")
             

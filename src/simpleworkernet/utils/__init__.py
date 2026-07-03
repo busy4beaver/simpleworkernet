@@ -34,7 +34,8 @@ from .graphics import (
     svg_to_png,
 )
 
-from .topology import CommutationGraph, FNGraph
+from .graph import CGraph, FNGraph
+from .topology import Topology
 
 from .coordinates import geo_to_xy, geo_to_xyz, xy_to_geo
 
@@ -61,8 +62,9 @@ __all__ = [
     'load_svg',
     'is_svg',
     'svg_to_png',
-    'CommutationGraph', 
+    'CGraph', 
     'FNGraph', 
+    'Topology', 
 
     'geo_to_xy',
     'geo_to_xyz',
