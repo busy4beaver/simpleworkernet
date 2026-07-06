@@ -616,17 +616,19 @@ class Topology:
         return self
 
     # ------------------------------------------------------------------------
-    # Метод trace_from_commutation (исправлен)
+    # Метод topology_from_commutation (новый)
     # ------------------------------------------------------------------------
-    def trace_from_commutation(self,
-                               last_object_type: Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer'],
-                               last_object_id: Union[int, str],
-                               port: Optional[int] = None,
-                               side: Optional[int] = None,
-                               first_object_type: Optional[Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer']] = None,
-                               first_object_id: Optional[Union[int, str]] = None) -> CGraph:
+
+    def topology_from_commutation(self,
+                                  last_object_type: Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer'],
+                                  last_object_id: Union[int, str],
+                                  port: Optional[int] = None,
+                                  side: Optional[int] = None,
+                                  first_object_type: Optional[Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer']] = None,
+                                  first_object_id: Optional[Union[int, str]] = None) -> 'Topology':
         """
-        Строит линейный граф (цепочку) от указанного последнего объекта в направлении к начальному объекту.
+        Строит линейный граф (цепочку) от указанного последнего объекта в направлении к начальному объекту
+        и возвращает новый Topology, содержащий этот линейный граф.
 
         Args:
             last_object_type: тип последнего объекта в трассе
@@ -637,12 +639,41 @@ class Topology:
             first_object_id: идентификатор первого объекта
 
         Returns:
-            CGraph: линейный граф (цепочка вершин и рёбер)
+            Topology: новый объект Topology, содержащий линейный граф
 
         Raises:
             ValueError: если невозможно построить однозначный линейный граф
         """
-        self.logger.info(f"=== TRACE FROM COMMUTATION: last={last_object_type}:{last_object_id} (port={port}, side={side}) ===")
+        self.logger.info(f"=== TOPOLOGY FROM COMMUTATION: last={last_object_type}:{last_object_id} (port={port}, side={side}) ===")
+
+        # Получаем линейный граф
+        linear_cgraph = self._trace_from_commutation_internal(
+            last_object_type, last_object_id, port, side, first_object_type, first_object_id
+        )
+
+        # Создаём новый Topology
+        new_topology = Topology(self.client)
+        new_topology._add_cgraph(linear_cgraph)
+        # Строим FNGraph из этого CGraph
+        fngraph = new_topology._build_fngraph_from_cgraph(linear_cgraph)
+        if fngraph is not None:
+            new_topology._set_fngraph(fngraph)
+
+        self.logger.info(f"Создан новый Topology с линейным графом: {linear_cgraph.vcount()} вершин, {linear_cgraph.ecount()} рёбер")
+        return new_topology
+
+    def _trace_from_commutation_internal(self,
+                                         last_object_type: Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer'],
+                                         last_object_id: Union[int, str],
+                                         port: Optional[int] = None,
+                                         side: Optional[int] = None,
+                                         first_object_type: Optional[Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer']] = None,
+                                         first_object_id: Optional[Union[int, str]] = None) -> CGraph:
+        """
+        Внутренний метод, реализующий логику построения линейного графа.
+        Возвращает CGraph.
+        """
+        self.logger.debug(f"=== INTERNAL TRACE: last={last_object_type}:{last_object_id} (port={port}, side={side}) ===")
 
         if not self.cgraphs:
             raise ValueError("Нет построенных графов. Сначала вызовите один из методов build_from_*")
@@ -722,17 +753,10 @@ class Topology:
                 if v['obj_type'] == first_object_type and str(v['obj_id']) == str(first_object_id):
                     target_indices.append(v.index)
         else:
-            # 1. Ищем OLT
+            # Ищем OLT или switch
             for v in selected_cgraph.vs:
-                if v['obj_type'] == TYPE_OLT:
+                if v['obj_type'] == TYPE_OLT or v['obj_type'] == TYPE_SWITCH:
                     target_indices.append(v.index)
-            # 2. Если OLT нет, ищем switch (не OLT)
-            if not target_indices:
-                for v in selected_cgraph.vs:
-                    if v['obj_type'] == TYPE_SWITCH:
-                        target_indices.append(v.index)
-            # 3. Если switch нет, ищем любые устройства (ONU) - но ONU обычно не корень, поэтому лучше исключить
-            # Вместо этого выбрасываем исключение, если нет OLT или switch
             if not target_indices:
                 raise ValueError(
                     "В графе нет OLT или switch. Невозможно автоматически определить корневую вершину. "
@@ -740,12 +764,9 @@ class Topology:
                 )
 
         if not target_indices:
-            raise ValueError(
-                "Не удалось определить целевую вершину (корень). "
-                "Попробуйте указать first_object явно."
-            )
+            raise ValueError("Не удалось определить целевую вершину (корень). Попробуйте указать first_object явно.")
 
-        # Если несколько кандидатов (например, несколько switch), выбираем тот, который дальше от start
+        # Если несколько кандидатов, выбираем самый дальний от старта
         if len(target_indices) > 1:
             distances = []
             for idx in target_indices:
@@ -774,7 +795,8 @@ class Topology:
         if not path:
             raise ValueError(f"Не удалось найти путь от {last_object_type}:{last_object_id} до целевой вершины")
 
-        return self._build_linear_graph_from_path(selected_cgraph, path, last_iface)
+        linear_cgraph = self._build_linear_graph_from_path(selected_cgraph, path, last_iface)
+        return linear_cgraph
 
     def _trace_from_terminal_with_multiple_comms(self,
                                                  obj_key: ObjKey,
