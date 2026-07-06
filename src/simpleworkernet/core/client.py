@@ -136,7 +136,7 @@ class WorkerNetClient:
         self.Trader = Trader(self)
         self.Vehicle = Vehicle(self)
         self.Vlan = Vlan(self)
-    
+
     def _encode_str(self, data: Any) -> Any:
         """
         Особая обработка слешей в строках.

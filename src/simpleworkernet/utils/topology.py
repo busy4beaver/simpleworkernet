@@ -15,13 +15,13 @@ from typing import Dict, List, Set, Tuple, Optional, Any, Union, Callable, Liter
 from collections import deque, defaultdict
 import igraph as ig
 
-from ..core.client import WorkerNetClient
+# from ..core.client import WorkerNetClient
 from ..models.categories import Commutation, Device, Cross, Splitter, Fiber, Customer, Node, Cwdm
 from .graph import (
     CGraph, FNGraph, DataCache, ObjKey, Interface,
     TYPE_CUSTOMER, TYPE_FIBER, TYPE_SPLITTER, TYPE_CROSS, TYPE_CWDM,
     TYPE_SWITCH, TYPE_OLT, TYPE_ONU,
-    DEVICE_TYPES, SIDE_TYPES, TERMINAL_TYPES,
+    DEVICE_TYPES, SIDE_TYPES, TERMINAL_TYPES, UNIFIED_DEVICE_TYPE,
     _data_cache  # глобальный синглтон-кэш
 )
 
@@ -42,7 +42,7 @@ class Topology:
     Использует общий глобальный кэш DataCache.
     """
 
-    def __init__(self, client: WorkerNetClient):
+    def __init__(self, client):
         self.client = client
         self.logger = _get_logger()
         self._cache = _data_cache
@@ -251,6 +251,9 @@ class Topology:
                                    included_fibers: Optional[Set[int]] = None,
                                    excluded_fibers: Optional[Set[int]] = None,
                                    excluded_nodes: Optional[Set[int]] = None) -> Optional[CGraph]:
+        graph_type = obj_type
+        if obj_type in DEVICE_TYPES:
+            graph_type = UNIFIED_DEVICE_TYPE
         cgraph = CGraph(self.client, cache=self._cache)
 
         if obj_type == TYPE_FIBER and side is None and port is not None:
@@ -279,7 +282,7 @@ class Topology:
             return None
 
         try:
-            cgraph.build(obj_type, obj_id, port=port, side=side,
+            cgraph.build(graph_type, obj_id, port=port, side=side,
                          included_fibers=included_fibers,
                          excluded_fibers=excluded_fibers,
                          excluded_nodes=excluded_nodes)
@@ -287,7 +290,7 @@ class Topology:
                 return None
             return cgraph
         except Exception as e:
-            self.logger.error(f"Ошибка построения CGraph от {obj_type}:{obj_id}: {e}")
+            self.logger.error(f"Ошибка построения CGraph от {graph_type}:{obj_id}: {e}")
             return None
 
     # ------------------------------------------------------------------------

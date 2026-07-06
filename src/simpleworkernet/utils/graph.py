@@ -102,11 +102,14 @@ TYPE_FIBER = 'fiber'
 TYPE_SPLITTER = 'splitter'
 TYPE_CROSS = 'cross'
 TYPE_CWDM = 'cwdm'
+TYPE_RADIO = 'radio'
 TYPE_SWITCH = 'switch'
 TYPE_OLT = 'olt'
 TYPE_ONU = 'onu'
 
-DEVICE_TYPES = {TYPE_SWITCH, TYPE_OLT, TYPE_ONU}
+UNIFIED_DEVICE_TYPE = TYPE_SWITCH
+
+DEVICE_TYPES = {TYPE_SWITCH, TYPE_OLT, TYPE_ONU, TYPE_RADIO}
 SIDE_TYPES = {TYPE_CROSS, TYPE_FIBER, TYPE_SPLITTER, TYPE_CWDM}
 TERMINAL_TYPES = {TYPE_CUSTOMER} | DEVICE_TYPES
 
@@ -198,7 +201,7 @@ class CGraph(ig.Graph):
         obj_id = obj_key.id
 
         if obj_type in DEVICE_TYPES:
-            api_type = TYPE_SWITCH
+            api_type = UNIFIED_DEVICE_TYPE
         else:
             api_type = obj_type
 
@@ -259,6 +262,10 @@ class CGraph(ig.Graph):
 
     def _add_vertex(self, iface: Interface, obj: Optional[Any] = None,
                     node_id_override: Optional[int] = None) -> int:
+        obj_type_for_graph = iface.obj.obj_type
+        if obj_type_for_graph in DEVICE_TYPES:
+            obj_type_for_graph = UNIFIED_DEVICE_TYPE
+
         if iface in self._vertex_index:
             return self._vertex_index[iface]
 
@@ -267,7 +274,7 @@ class CGraph(ig.Graph):
 
         node_id = node_id_override
         if node_id is None and obj is not None:
-            side_for_node = iface.side if iface.obj.obj_type == TYPE_FIBER else None
+            side_for_node = iface.side if obj_type_for_graph == TYPE_FIBER else None
             node_id = self._get_node_id_from_obj(obj, side_for_node)
 
         splitter_type = None
@@ -275,7 +282,7 @@ class CGraph(ig.Graph):
             splitter_type = self._get_splitter_type_from_obj(obj)
 
         attrs = {
-            'obj_type': iface.obj.obj_type,
+            'obj_type': obj_type_for_graph,
             'obj_id': str(iface.obj.id),
             'side': iface.side,
             'port': iface.port,
@@ -576,6 +583,8 @@ class CGraph(ig.Graph):
 
             # Обрабатываем все внешние коммутации
             parent_node_id = self._get_node_id_from_obj(self._load_object(obj))
+            # Собираем соседей в список для сортировки
+            neighbors_to_add = []
             for rec in comms:
                 neighbor_key = self._get_neighbor_obj_key(rec)
                 if neighbor_key is None:
@@ -592,7 +601,7 @@ class CGraph(ig.Graph):
 
                 node_id_for_vertex2 = parent_node_id if neighbor_key.obj_type == TYPE_CUSTOMER else None
                 self._add_edge(obj_iface, neighbor_iface, connect_id,
-                               node_id_for_vertex2=node_id_for_vertex2)
+                            node_id_for_vertex2=node_id_for_vertex2)
 
                 # Проверка фильтров для соседа
                 if neighbor_key.obj_type == TYPE_FIBER:
@@ -610,8 +619,14 @@ class CGraph(ig.Graph):
 
                 if (neighbor_key.obj_type != TYPE_CUSTOMER and
                     neighbor_iface not in visited_interfaces):
-                    visited_interfaces.add(neighbor_iface)
-                    queue.append((neighbor_iface, obj))
+                    # Собираем для сортировки
+                    neighbors_to_add.append((neighbor_iface, obj))
+
+            # Сортируем соседей по стабильным ключам
+            neighbors_to_add.sort(key=lambda x: (x[0].obj.obj_type, x[0].obj.id, x[0].side, x[0].port))
+            for neighbor_iface, obj_parent in neighbors_to_add:
+                visited_interfaces.add(neighbor_iface)
+                queue.append((neighbor_iface, obj_parent))
             return
 
     # ------------------------------------------------------------------------
@@ -660,17 +675,17 @@ class CGraph(ig.Graph):
 
         # Устройства (OLT, switch, ONU) – нужно найти реальный порт по connect_id
         if neighbor_obj_key.obj_type in DEVICE_TYPES:
-            neighbor_comms = self._load_commutations(neighbor_obj_key)
+            unified_key = ObjKey(UNIFIED_DEVICE_TYPE, neighbor_obj_key.id)
+            neighbor_comms = self._load_commutations(unified_key)  # используем унифицированный тип
             if not neighbor_comms:
                 self.logger.warning(f"Нет коммутаций для устройства {neighbor_obj_key}")
-                return Interface(neighbor_obj_key, side=1, port=0)  # fallback
+                return Interface(unified_key, side=1, port=0)
             for rec in neighbor_comms:
                 if int(rec.connect_id) == int(connect_id):
                     port = int(rec.clps_first) if rec.clps_first is not None else 0
-                    return Interface(neighbor_obj_key, side=1, port=port)
-            # Если не нашли, fallback
+                    return Interface(unified_key, side=1, port=port)
             self.logger.warning(f"Не найден порт для устройства {neighbor_obj_key} по connect_id {connect_id}")
-            return Interface(neighbor_obj_key, side=1, port=0)
+            return Interface(unified_key, side=1, port=0)
 
         # Объекты со сторонами (кросс, кабель, сплиттер, CWDM)
         neighbor_comms = self._load_commutations(neighbor_obj_key)
@@ -742,7 +757,7 @@ class CGraph(ig.Graph):
                 return self
             self.logger.info(f"Найдено {len(pon_ports)} PON-портов: {pon_ports}")
             for p in pon_ports:
-                start_interfaces.append(Interface(ObjKey(TYPE_OLT, object_id), side=1, port=p))
+                start_interfaces.append(Interface(ObjKey(UNIFIED_DEVICE_TYPE, object_id), side=1, port=p))
 
         # Абонент без порта – все его коммутации
         elif object_type == TYPE_CUSTOMER and port is None:
@@ -799,6 +814,8 @@ class CGraph(ig.Graph):
         # Общий случай – один интерфейс
         else:
             obj_key = ObjKey(object_type, object_id)
+            if obj_key.obj_type in DEVICE_TYPES:
+                obj_key = ObjKey(UNIFIED_DEVICE_TYPE, obj_key.id)
             if object_type in SIDE_TYPES and side is not None:
                 s = side
             else:
@@ -832,7 +849,8 @@ class CGraph(ig.Graph):
         queue = deque()
         visited_interfaces: Set[Interface] = set()
 
-        for iface in start_interfaces:
+        # Сортируем стартовые интерфейсы для детерминизма
+        for iface in sorted(start_interfaces, key=lambda x: (x.obj.obj_type, x.obj.id, x.side, x.port)):
             if iface not in visited_interfaces:
                 visited_interfaces.add(iface)
                 queue.append((iface, None))
@@ -961,6 +979,7 @@ class FNGraph(ig.Graph):
             'name': f"node:{node_id}",
             'api_obj': node_obj,
         }
+        
         if node_obj is not None:
             for attr in ['address_id', 'coordinates', 'type', 'number', 'comment', 'location', 'is_planned']:
                 if hasattr(node_obj, attr):
