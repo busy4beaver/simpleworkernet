@@ -186,7 +186,8 @@ class CGraph(ig.Graph):
                     result = self.client.Fiber.get_list(object_id=int(obj_id))
                     return result[0] if result and len(result) > 0 else None
                 elif obj_type == TYPE_CUSTOMER:
-                    result = self.client.Customer.get_data(customer_id=int(obj_id))
+                    # result = self.client.Customer.get_data(customer_id=int(obj_id))
+                    result = []
                     return result[0] if result and len(result) > 0 else None
                 else:
                     return None
@@ -259,6 +260,66 @@ class CGraph(ig.Graph):
     # ------------------------------------------------------------------------
     # Добавление вершин и рёбер
     # ------------------------------------------------------------------------
+
+    def _mark_terminate_vertices(self) -> None:
+        """
+        Определяет для каждой вершины, является ли она конечной в исходной топологии.
+        Терминальные объекты (абоненты, ONU) и OLT/switch всегда конечны.
+        Для кроссов/кабелей: транзит, если есть внутренняя коммутация на другую сторону с тем же портом и сосед не терминальный.
+        Для сплиттеров/CWDM: конечны, если нет внешних коммутаций к не-терминальным объектам.
+        """
+        for v in self.vs:
+            obj_type = v['obj_type']
+            obj_id = v['obj_id']
+            side = v['side'] if 'side' in v.attributes() else 1
+            port = v['port'] if 'port' in v.attributes() else 0
+
+            # OLT, switch, терминальные объекты - всегда конечны
+            if obj_type in (TYPE_OLT, TYPE_SWITCH) or obj_type in TERMINAL_TYPES:
+                v['terminate_vertex'] = True
+                continue
+
+            obj_key = ObjKey(obj_type, obj_id)
+            comms = self._load_commutations(obj_key)
+            if not comms:
+                v['terminate_vertex'] = True
+                continue
+
+            # --- КРОССЫ И КАБЕЛИ ---
+            if obj_type in (TYPE_CROSS, TYPE_FIBER):
+                opposite_side = 2 if side == 1 else 1
+                opposite_record = None
+                for rec in comms:
+                    if rec.clps_first is not None and int(rec.clps_first) == opposite_side and \
+                    rec.clps_mid is not None and int(rec.clps_mid) == port:
+                        opposite_record = rec
+                        break
+
+                if opposite_record is None:
+                    v['terminate_vertex'] = True
+                    continue
+
+                neighbor_obj_key = self._get_neighbor_obj_key(opposite_record)
+                if neighbor_obj_key is None:
+                    v['terminate_vertex'] = True
+                    continue
+
+                v['terminate_vertex'] = (neighbor_obj_key.obj_type in TERMINAL_TYPES)
+                continue
+
+            # --- СПЛИТТЕРЫ И CWDM ---
+            if obj_type in (TYPE_SPLITTER, TYPE_CWDM):
+                has_non_terminal_neighbor = False
+                for rec in comms:
+                    neighbor_key = self._get_neighbor_obj_key(rec)
+                    if neighbor_key is not None and neighbor_key.obj_type not in TERMINAL_TYPES:
+                        has_non_terminal_neighbor = True
+                        break
+                v['terminate_vertex'] = not has_non_terminal_neighbor
+                continue
+
+            # Остальные объекты (неизвестные) - конечны
+            v['terminate_vertex'] = True
 
     def _add_vertex(self, iface: Interface, obj: Optional[Any] = None,
                     node_id_override: Optional[int] = None) -> int:
@@ -675,17 +736,17 @@ class CGraph(ig.Graph):
 
         # Устройства (OLT, switch, ONU) – нужно найти реальный порт по connect_id
         if neighbor_obj_key.obj_type in DEVICE_TYPES:
-            unified_key = ObjKey(UNIFIED_DEVICE_TYPE, neighbor_obj_key.id)
-            neighbor_comms = self._load_commutations(unified_key)  # используем унифицированный тип
+            neighbor_comms = self._load_commutations(neighbor_obj_key)
             if not neighbor_comms:
                 self.logger.warning(f"Нет коммутаций для устройства {neighbor_obj_key}")
-                return Interface(unified_key, side=1, port=0)
+                return Interface(neighbor_obj_key, side=1, port=0)  # fallback
             for rec in neighbor_comms:
                 if int(rec.connect_id) == int(connect_id):
                     port = int(rec.clps_first) if rec.clps_first is not None else 0
-                    return Interface(unified_key, side=1, port=port)
+                    return Interface(neighbor_obj_key, side=1, port=port)
+            # Если не нашли, fallback
             self.logger.warning(f"Не найден порт для устройства {neighbor_obj_key} по connect_id {connect_id}")
-            return Interface(unified_key, side=1, port=0)
+            return Interface(neighbor_obj_key, side=1, port=0)
 
         # Объекты со сторонами (кросс, кабель, сплиттер, CWDM)
         neighbor_comms = self._load_commutations(neighbor_obj_key)
@@ -871,7 +932,8 @@ class CGraph(ig.Graph):
                 self._process_side_object(obj, comms, current_iface, visited_interfaces, queue)
             else:
                 self.logger.warning(f"Неизвестный тип объекта: {obj.obj_type}")
-
+        self._mark_terminate_vertices()
+    
     # ------------------------------------------------------------------------
     # Направление графа
     # ------------------------------------------------------------------------
@@ -1035,7 +1097,8 @@ class FNGraph(ig.Graph):
                 self.logger.debug(f"Кабель {fiber_id} имеет только один узел")
             else:
                 self.logger.warning(f"Кабель {fiber_id} имеет более двух узлов")
-
+        self._mark_terminate_nodes()
+    
     # ------------------------------------------------------------------------
     # Построение через API (BFS)
     # ------------------------------------------------------------------------
@@ -1086,6 +1149,25 @@ class FNGraph(ig.Graph):
                 self._add_edge(current_node, neighbor, fiber_id)
                 if neighbor not in visited_nodes:
                     queue.append(neighbor)
+        for v in self.vs:
+            v['terminate_node'] = True
+
+    def _mark_terminate_nodes(self) -> None:
+        if self._commutation_graph is None:
+            return
+
+        cg = self._commutation_graph
+        terminate_nodes = set()
+
+        for v in cg.vs:
+            if 'terminate_vertex' in v.attributes() and v['terminate_vertex']:
+                node_id = v['node_id'] if 'node_id' in v.attributes() else None
+                if node_id is not None:
+                    terminate_nodes.add(node_id)
+
+        for v in self.vs:
+            node_id = v['node_id']
+            v['terminate_node'] = node_id in terminate_nodes
 
     # ------------------------------------------------------------------------
     # Основной метод построения

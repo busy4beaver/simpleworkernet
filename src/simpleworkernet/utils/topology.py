@@ -657,26 +657,40 @@ class Topology:
         # Создаём новый Topology
         new_topology = Topology(self.client)
         new_topology._add_cgraph(linear_cgraph)
-        # Строим FNGraph из этого CGraph
         fngraph = new_topology._build_fngraph_from_cgraph(linear_cgraph)
         if fngraph is not None:
             new_topology._set_fngraph(fngraph)
+
+        # --- ГАРАНТИРУЕМ, ЧТО terminate_node ВЗЯТЫ ИЗ ИСХОДНОГО CGraph ---
+        if self.fngraph is not None and new_topology.fngraph is not None:
+            # Собираем terminate_node из исходного FNGraph
+            source_terminate = {}
+            for v in self.fngraph.vs:
+                node_id = v['node_id']
+                if 'terminate_node' in v.attributes():
+                    source_terminate[node_id] = v['terminate_node']
+
+            # Применяем к новому FNGraph
+            for v in new_topology.fngraph.vs:
+                node_id = v['node_id']
+                if node_id in source_terminate:
+                    v['terminate_node'] = source_terminate[node_id]
 
         self.logger.info(f"Создан новый Topology с линейным графом: {linear_cgraph.vcount()} вершин, {linear_cgraph.ecount()} рёбер")
         return new_topology
 
     def _trace_from_commutation_internal(self,
-                                         last_object_type: Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer'],
-                                         last_object_id: Union[int, str],
-                                         port: Optional[int] = None,
-                                         side: Optional[int] = None,
-                                         first_object_type: Optional[Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer']] = None,
-                                         first_object_id: Optional[Union[int, str]] = None) -> CGraph:
+                                        last_object_type: Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer'],
+                                        last_object_id: Union[int, str],
+                                        port: Optional[int] = None,
+                                        side: Optional[int] = None,
+                                        first_object_type: Optional[Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer']] = None,
+                                        first_object_id: Optional[Union[int, str]] = None) -> CGraph:
         """
-        Внутренний метод, реализующий логику построения линейного графа.
-        Возвращает CGraph.
+        Внутренний метод, реализующий построение линейного графа.
+        При наличии нескольких CGraph выбирает тот, который содержит обе вершины (last и first_object).
         """
-        self.logger.debug(f"=== INTERNAL TRACE: last={last_object_type}:{last_object_id} (port={port}, side={side}) ===")
+        self.logger.debug(f"=== INTERNAL LINEAR TRACE: last={last_object_type}:{last_object_id} (port={port}, side={side}) ===")
 
         if not self.cgraphs:
             raise ValueError("Нет построенных графов. Сначала вызовите один из методов build_from_*")
@@ -718,88 +732,231 @@ class Topology:
                 raise ValueError(f"Для объекта {last_object_type} необходимо указать сторону (side)")
             last_iface = Interface(last_obj_key, side=side, port=port)
 
-        # --- Поиск графа, содержащего интерфейс ---
+        # --- Поиск графов, содержащих интерфейс ---
         candidate_graphs = [cg for cg in self.cgraphs if last_iface in cg._vertex_index]
         if not candidate_graphs:
             raise ValueError(f"Интерфейс {last_iface} не найден ни в одном из построенных графов")
 
-        if len(candidate_graphs) > 1 and (first_object_type is None or first_object_id is None):
-            raise ValueError(
-                f"Интерфейс {last_iface} найден в нескольких графах. "
-                "Укажите first_object для выбора."
-            )
-
+        # --- Выбор графа ---
         selected_cgraph = None
         if first_object_type is not None and first_object_id is not None:
             first_obj_key = ObjKey(first_object_type, first_object_id)
+            # Ищем граф, содержащий обе вершины
             for cg in candidate_graphs:
+                has_last = last_iface in cg._vertex_index
+                has_first = False
                 for v in cg.vs:
                     if v['obj_type'] == first_object_type and str(v['obj_id']) == str(first_object_id):
-                        selected_cgraph = cg
+                        has_first = True
                         break
-                if selected_cgraph is not None:
+                if has_last and has_first:
+                    selected_cgraph = cg
                     break
             if selected_cgraph is None:
-                raise ValueError(
-                    f"Граф с объектом {first_object_type}:{first_object_id} не найден "
-                    "среди графов, содержащих last интерфейс"
-                )
+                # Если граф с обеими вершинами не найден, но возможно first_object есть в другом графе
+                # Проверяем, есть ли first_object вообще в каких-либо графах
+                first_found = False
+                for cg in self.cgraphs:
+                    for v in cg.vs:
+                        if v['obj_type'] == first_object_type and str(v['obj_id']) == str(first_object_id):
+                            first_found = True
+                            break
+                    if first_found:
+                        break
+                if first_found:
+                    raise ValueError(
+                        f"Объект {first_object_type}:{first_object_id} найден в графе, "
+                        f"не содержащем {last_object_type}:{last_object_id}. "
+                        f"Укажите другой first_object или проверьте графы."
+                    )
+                else:
+                    raise ValueError(
+                        f"Объект {first_object_type}:{first_object_id} не найден ни в одном из графов. "
+                        f"Проверьте правильность ID."
+                    )
         else:
+            # Если first_object не задан, берём первый граф
+            if len(candidate_graphs) > 1:
+                raise ValueError(
+                    f"Интерфейс {last_iface} найден в нескольких графах. "
+                    "Укажите first_object для выбора."
+                )
             selected_cgraph = candidate_graphs[0]
 
-        # --- Поиск целевых вершин (корней) ---
-        start_idx = selected_cgraph._vertex_index[last_iface]
-        target_indices = []
+        # --- Линейный обход от last_iface ---
+        current = last_iface
+        prev = None
+        path = [current]
+        self.logger.debug(f"Начинаем линейный обход от {current}")
 
-        if first_object_type is not None and first_object_id is not None:
-            for v in selected_cgraph.vs:
-                if v['obj_type'] == first_object_type and str(v['obj_id']) == str(first_object_id):
-                    target_indices.append(v.index)
-        else:
-            # Ищем OLT или switch
-            for v in selected_cgraph.vs:
-                if v['obj_type'] == TYPE_OLT or v['obj_type'] == TYPE_SWITCH:
-                    target_indices.append(v.index)
-            if not target_indices:
+        while True:
+            current_idx = selected_cgraph._vertex_index[current]
+            current_attrs = selected_cgraph.vs[current_idx]
+            current_type = current_attrs['obj_type']
+
+            incident_edges = selected_cgraph.incident(current_idx, mode='all')
+            external_neighbors = []
+            internal_neighbors = []
+
+            for eid in incident_edges:
+                edge = selected_cgraph.es[eid]
+                if edge.source == current_idx:
+                    neighbor_idx = edge.target
+                else:
+                    neighbor_idx = edge.source
+
+                n_iface = None
+                for iface, idx in selected_cgraph._vertex_index.items():
+                    if idx == neighbor_idx:
+                        n_iface = iface
+                        break
+                if n_iface is None:
+                    continue
+                if n_iface == prev:
+                    continue
+
+                if edge['is_internal']:
+                    internal_neighbors.append(n_iface)
+                else:
+                    external_neighbors.append(n_iface)
+
+            # Определяем следующего соседа
+            next_iface = None
+            if external_neighbors:
+                if len(external_neighbors) == 1:
+                    next_iface = external_neighbors[0]
+                    self.logger.debug(f"Выбрано внешнее ребро к {next_iface}")
+                else:
+                    # Если задан first_object, пытаемся найти путь через кратчайший маршрут
+                    if first_object_type is not None and first_object_id is not None:
+                        self.logger.debug(f"Несколько внешних рёбер, ищем путь до first_object")
+                        target_idx = None
+                        for v in selected_cgraph.vs:
+                            if v['obj_type'] == first_object_type and str(v['obj_id']) == str(first_object_id):
+                                target_idx = v.index
+                                break
+                        if target_idx is None:
+                            raise ValueError(f"Целевой объект {first_object_type}:{first_object_id} не найден в графе")
+                        try:
+                            paths = selected_cgraph.get_shortest_paths(current_idx, target_idx, mode='all')
+                            if not paths or not paths[0]:
+                                raise ValueError("Путь не найден")
+                            shortest_path = paths[0]
+                            # Добавляем все вершины пути, кроме текущей
+                            for idx in shortest_path[1:]:
+                                n_iface = None
+                                for iface, i in selected_cgraph._vertex_index.items():
+                                    if i == idx:
+                                        n_iface = iface
+                                        break
+                                if n_iface is None:
+                                    raise ValueError(f"Не удалось найти интерфейс для вершины {idx}")
+                                path.append(n_iface)
+                            self.logger.info(f"Построен путь до first_object: {len(path)} вершин")
+                            break
+                        except Exception as e:
+                            raise ValueError(f"Ошибка при поиске пути до first_object: {e}")
+                    else:
+                        raise ValueError(
+                            f"Обнаружено ветвление на объекте {current_type}:{current_attrs['obj_id']}. "
+                            "Невозможно построить линейный граф. Укажите first_object явно."
+                        )
+            elif internal_neighbors:
+                if len(internal_neighbors) == 1:
+                    next_iface = internal_neighbors[0]
+                    self.logger.debug(f"Выбрано внутреннее ребро к {next_iface}")
+                else:
+                    # Несколько внутренних рёбер – ветвление (например, несколько выходов сплиттера)
+                    if first_object_type is not None and first_object_id is not None:
+                        self.logger.debug(f"Несколько внутренних рёбер, ищем путь до first_object")
+                        target_idx = None
+                        for v in selected_cgraph.vs:
+                            if v['obj_type'] == first_object_type and str(v['obj_id']) == str(first_object_id):
+                                target_idx = v.index
+                                break
+                        if target_idx is None:
+                            raise ValueError(f"Целевой объект {first_object_type}:{first_object_id} не найден в графе")
+                        try:
+                            paths = selected_cgraph.get_shortest_paths(current_idx, target_idx, mode='all')
+                            if not paths or not paths[0]:
+                                raise ValueError("Путь не найден")
+                            shortest_path = paths[0]
+                            for idx in shortest_path[1:]:
+                                n_iface = None
+                                for iface, i in selected_cgraph._vertex_index.items():
+                                    if i == idx:
+                                        n_iface = iface
+                                        break
+                                if n_iface is None:
+                                    raise ValueError(f"Не удалось найти интерфейс для вершины {idx}")
+                                path.append(n_iface)
+                            self.logger.info(f"Построен путь до first_object: {len(path)} вершин")
+                            break
+                        except Exception as e:
+                            raise ValueError(f"Ошибка при поиске пути до first_object: {e}")
+                    else:
+                        raise ValueError(
+                            f"Обнаружено ветвление на объекте {current_type}:{current_attrs['obj_id']} (несколько внутренних рёбер). "
+                            "Невозможно построить линейный граф. Укажите first_object явно."
+                        )
+            else:
+                # Нет соседей – тупик
+                if first_object_type is not None and first_object_id is not None:
+                    if current_type == first_object_type and str(current_attrs['obj_id']) == str(first_object_id):
+                        self.logger.info(f"Достигнут first_object: {current_type}:{current_attrs['obj_id']}")
+                        break
+                    else:
+                        raise ValueError(
+                            f"Достигнут тупик на объекте {current_type}:{current_attrs['obj_id']}, "
+                            f"не совпадающем с first_object {first_object_type}:{first_object_id}"
+                        )
+                else:
+                    if current_type in (TYPE_OLT, TYPE_SWITCH):
+                        self.logger.info(f"Достигнут корень: {current_type}:{current_attrs['obj_id']}")
+                        break
+                    else:
+                        raise ValueError(
+                            f"Достигнут тупик на объекте {current_type}:{current_attrs['obj_id']}, "
+                            "не являющемся OLT или switch"
+                        )
+
+            # Если мы определили next_iface, проверяем его
+            if next_iface is None:
+                # Это случай, когда мы уже вышли из цикла через break
+                break
+
+            next_type = next_iface.obj.obj_type
+            if next_type == TYPE_CWDM:
                 raise ValueError(
-                    "В графе нет OLT или switch. Невозможно автоматически определить корневую вершину. "
-                    "Укажите first_object явно."
+                    f"Обнаружен CWDM на пути построения. "
+                    f"Линейный граф через CWDM не поддерживается."
                 )
 
-        if not target_indices:
-            raise ValueError("Не удалось определить целевую вершину (корень). Попробуйте указать first_object явно.")
+            if next_type in (TYPE_OLT, TYPE_SWITCH):
+                path.append(next_iface)
+                self.logger.info(f"Достигнут корень: {next_type}:{next_iface.obj.id}")
+                break
 
-        # Если несколько кандидатов, выбираем самый дальний от старта
-        if len(target_indices) > 1:
-            distances = []
-            for idx in target_indices:
-                try:
-                    path_len = len(selected_cgraph.get_shortest_paths(start_idx, idx, mode='all')[0])
-                    distances.append((idx, path_len))
-                except:
-                    distances.append((idx, -1))
-            distances.sort(key=lambda x: x[1], reverse=True)
-            target_indices = [distances[0][0]]
-            self.logger.info(f"Выбрана корневая вершина: {selected_cgraph.vs[target_indices[0]]['obj_type']}:{selected_cgraph.vs[target_indices[0]]['obj_id']} (расстояние {distances[0][1]})")
-        elif len(target_indices) == 1:
-            self.logger.info(f"Найдена корневая вершина: {selected_cgraph.vs[target_indices[0]]['obj_type']}:{selected_cgraph.vs[target_indices[0]]['obj_id']}")
+            if next_type in DEVICE_TYPES:
+                raise ValueError(
+                    f"Обнаружено устройство {next_type}:{next_iface.obj.id} на пути, "
+                    "не являющееся OLT или switch. Остановка."
+                )
 
-        # --- Поиск кратчайшего пути до целевой вершины ---
-        path = None
-        for target_idx in target_indices:
-            try:
-                paths = selected_cgraph.get_shortest_paths(start_idx, target_idx, mode='all')
-                if paths and paths[0]:
-                    path = paths[0]
+            if first_object_type is not None and first_object_id is not None:
+                if next_type == first_object_type and str(next_iface.obj.id) == str(first_object_id):
+                    path.append(next_iface)
+                    self.logger.info(f"Достигнут first_object: {next_type}:{next_iface.obj.id}")
                     break
-            except:
-                continue
 
-        if not path:
-            raise ValueError(f"Не удалось найти путь от {last_object_type}:{last_object_id} до целевой вершины")
+            prev = current
+            current = next_iface
+            path.append(current)
+            self.logger.debug(f"Переход к {current}")
 
-        linear_cgraph = self._build_linear_graph_from_path(selected_cgraph, path, last_iface)
-        return linear_cgraph
+        # Строим линейный граф из path
+        path_indices = [selected_cgraph._vertex_index[iface] for iface in path]
+        return self._build_linear_graph_from_path(selected_cgraph, path_indices, last_iface)
 
     def _trace_from_terminal_with_multiple_comms(self,
                                                  obj_key: ObjKey,
@@ -836,7 +993,9 @@ class Topology:
 
         for idx in path_vertices:
             v_attrs = cgraph.vs[idx]
-            new_idx = linear_cgraph.add_vertex(**{key: v_attrs[key] for key in v_attrs.attributes()}).index
+            # Копируем все атрибуты, включая terminate_vertex
+            attrs = {key: v_attrs[key] for key in v_attrs.attributes()}
+            new_idx = linear_cgraph.add_vertex(**attrs).index
             vertex_indices[idx] = new_idx
 
         for i in range(len(path_vertices) - 1):
@@ -847,9 +1006,10 @@ class Topology:
                 eid = cgraph.get_eid(idx2, idx1, error=False)
             if eid != -1:
                 e_attrs = cgraph.es[eid]
+                attrs = {key: e_attrs[key] for key in e_attrs.attributes()}
                 new_i = vertex_indices[idx1]
                 new_j = vertex_indices[idx2]
-                linear_cgraph.add_edge(new_i, new_j, **{key: e_attrs[key] for key in e_attrs.attributes()})
+                linear_cgraph.add_edge(new_i, new_j, **attrs)
 
         linear_cgraph._update_directed_flag()
         return linear_cgraph
