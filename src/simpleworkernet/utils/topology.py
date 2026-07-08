@@ -1,28 +1,27 @@
 # simpleworkernet/utils/topology.py
 """
-Модуль Topology — высокоуровневый API для построения и работы с графами.
-Использует общий глобальный кэш DataCache из модуля graph.py.
-CGraph (граф коммутаций) хранится в виде списка связных графов.
-FNGraph (граф сооружений) — один связный граф.
+Модуль Topology — высокоуровневый API для построения и анализа топологии сети.
 
-Поддерживаются фильтры:
-- included_fibers (Set[int]): ID кабелей, через которые разрешён проход
-- excluded_fibers (Set[int]): ID кабелей, на которых обход останавливается
-- excluded_nodes (Set[int]): ID узлов, на которых обход останавливается
+Использует общий глобальный кэш DataCache из graph.py.
+Хранит список связных CGraph (каждый — отдельная компонента связности) и один связный FNGraph.
+Предоставляет методы для построения графов от различных объектов сети, получения статистики,
+а также построения линейных графов (topology_from_commutation).
+
+Все данные загружаются через DataCache, что обеспечивает единое кэширование.
 """
 
 from typing import Dict, List, Set, Tuple, Optional, Any, Union, Callable, Literal
 from collections import deque, defaultdict
 import igraph as ig
 
-# from ..core.client import WorkerNetClient
+from ..core.client import WorkerNetClient
 from ..models.categories import Commutation, Device, Cross, Splitter, Fiber, Customer, Node, Cwdm
 from .graph import (
     CGraph, FNGraph, DataCache, ObjKey, Interface,
     TYPE_CUSTOMER, TYPE_FIBER, TYPE_SPLITTER, TYPE_CROSS, TYPE_CWDM,
     TYPE_SWITCH, TYPE_OLT, TYPE_ONU,
-    DEVICE_TYPES, SIDE_TYPES, TERMINAL_TYPES, UNIFIED_DEVICE_TYPE,
-    _data_cache  # глобальный синглтон-кэш
+    DEVICE_TYPES, SIDE_TYPES, TERMINAL_TYPES,
+    _data_cache
 )
 
 _logger = None
@@ -42,83 +41,50 @@ class Topology:
     Использует общий глобальный кэш DataCache.
     """
 
-    def __init__(self, client):
-        self.client = client
+    def __init__(self, client: WorkerNetClient):
+        self.client: WorkerNetClient = client
         self.logger = _get_logger()
-        self._cache = _data_cache
-        self.cgraphs: List[CGraph] = []
-        self.fngraph: Optional[FNGraph] = None
-        self._objects_cache: Dict[str, Dict[Union[int, str], Any]] = {
-            'customer': {}, 'node': {}, 'fiber': {}, 'device': {},
-            'splitter': {}, 'cwdm': {}, 'cross': {},
-        }
+        self._cache:DataCache = _data_cache
+        # self._cache.load_all(client)
+        self.cgraphs: List[CGraph] = []          # список связных графов коммутаций
+        self.fngraph: Optional[FNGraph] = None   # единственный связный граф сооружений
 
     # ------------------------------------------------------------------------
     # Внутренние методы для загрузки объектов (используют DataCache)
     # ------------------------------------------------------------------------
 
     def _load_object(self, obj_type: str, obj_id: Union[int, str]) -> Optional[Any]:
-        cache_key = (obj_type, obj_id)
-        if cache_key in self._objects_cache.get(obj_type, {}):
-            return self._objects_cache[obj_type][obj_id]
-
-        def loader() -> Optional[Any]:
-            try:
-                if obj_type == TYPE_CUSTOMER:
-                    result = self.client.Customer.get_data(customer_id=int(obj_id))
-                    return result[0] if result and len(result) > 0 else None
-                elif obj_type == 'node':
-                    result = self.client.Node.get(id=int(obj_id))
-                    return result[0] if result and len(result) > 0 else None
-                elif obj_type == TYPE_FIBER:
-                    result = self.client.Fiber.get_list(object_id=int(obj_id))
-                    return result[0] if result and len(result) > 0 else None
-                elif obj_type in DEVICE_TYPES:
-                    result = self.client.Device.get_data(object_type=obj_type, object_id=int(obj_id))
-                    return result[0] if result and len(result) > 0 else None
-                elif obj_type == TYPE_SPLITTER:
-                    result = self.client.Splitter.get(id=int(obj_id))
-                    return result[0] if result and len(result) > 0 else None
-                elif obj_type == TYPE_CWDM:
-                    result = self.client.Cwdm.get(id=int(obj_id))
-                    return result[0] if result and len(result) > 0 else None
-                elif obj_type == TYPE_CROSS:
-                    result = self.client.Cross.get_list(id=str(obj_id))
-                    return result[0] if result and len(result) > 0 else None
-                else:
-                    return None
-            except Exception as e:
-                self.logger.warning(f"Не удалось загрузить {obj_type}:{obj_id}: {e}")
-                return None
-
-        obj = self._cache.get_or_load_object(obj_type, obj_id, loader)
-        if obj is not None:
-            if obj_type not in self._objects_cache:
-                self._objects_cache[obj_type] = {}
-            self._objects_cache[obj_type][obj_id] = obj
-        return obj
+        """
+        Загружает объект по типу и ID через DataCache.
+        Используется в методах customer, node, cable, fiber, device, splitter, cwdm, cross.
+        """
+        if obj_type == TYPE_CUSTOMER:
+            return self._cache.get_customer(self.client, int(obj_id))
+        elif obj_type == 'node':
+            return self._cache.get_node(self.client, int(obj_id))
+        elif obj_type == TYPE_FIBER:
+            return self._cache.get_fiber(self.client, int(obj_id))
+        elif obj_type in DEVICE_TYPES:
+            return self._cache.get_device(self.client, obj_type, int(obj_id))
+        elif obj_type == TYPE_SPLITTER:
+            return self._cache.get_splitter(self.client, int(obj_id))
+        elif obj_type == TYPE_CWDM:
+            return self._cache.get_cwdm(self.client, int(obj_id))
+        elif obj_type == TYPE_CROSS:
+            return self._cache.get_cross(self.client, str(obj_id))
+        else:
+            return None
 
     def _get_commutations(self, obj_type: str, obj_id: Union[int, str]) -> List[Commutation.Get_data]:
-        def loader() -> List[Commutation.Get_data]:
-            if obj_type in DEVICE_TYPES:
-                api_type = TYPE_SWITCH
-            else:
-                api_type = obj_type
-            api_id = str(obj_id) if obj_type == TYPE_CROSS else int(obj_id)
-            try:
-                result = self.client.Commutation.get_data(object_type=api_type, object_id=api_id)
-                return result.to_list() if result else []
-            except Exception as e:
-                self.logger.error(f"Ошибка загрузки коммутаций для {obj_type}:{obj_id}: {e}")
-                return []
-
-        return self._cache.get_or_load_commutations(obj_type, obj_id, loader)
+        """Загружает коммутации для объекта через DataCache (без finish-записей)."""
+        return self._cache.get_commutations_by_object(self.client, obj_type, obj_id, is_finish_data=0)
 
     # ------------------------------------------------------------------------
-    # Внутренние методы для работы со списками графов
+    # Внутренние методы для работы с графами
     # ------------------------------------------------------------------------
 
     def _normalize_set(self, value: Optional[Union[int, List[int], Set[int]]]) -> Optional[Set[int]]:
+        """Приводит значение к множеству int."""
         if value is None:
             return None
         if isinstance(value, (int, str)):
@@ -126,6 +92,7 @@ class Topology:
         return set(value)
 
     def _add_cgraph(self, cgraph: CGraph) -> None:
+        """Добавляет связный CGraph в список."""
         if cgraph is None or cgraph.vcount() == 0:
             return
         if not cgraph.is_connected():
@@ -134,6 +101,7 @@ class Topology:
         self.cgraphs.append(cgraph)
 
     def _set_fngraph(self, fngraph: FNGraph) -> None:
+        """Устанавливает единственный связный FNGraph."""
         if fngraph is None or fngraph.vcount() == 0:
             return
         if not fngraph.is_connected():
@@ -142,13 +110,18 @@ class Topology:
         self.fngraph = fngraph
 
     def _build_fngraph_from_cgraph(self, cgraph: CGraph) -> Optional[FNGraph]:
+        """Строит FNGraph из CGraph."""
         if cgraph is None or cgraph.vcount() == 0:
             return None
         fngraph = FNGraph(self.client, commutation_graph=cgraph, cache=self._cache)
-        fngraph.build(0)
+        fngraph.build(0)  # start_node_id не используется при построении из CGraph
         return fngraph if fngraph.vcount() > 0 else None
 
     def _merge_cgraphs(self, graphs: List[CGraph]) -> Optional[CGraph]:
+        """
+        Объединяет несколько CGraph в один, если они пересекаются по вершинам.
+        Если объединённый граф связный, возвращает его, иначе None.
+        """
         if not graphs:
             return None
         if len(graphs) == 1:
@@ -209,6 +182,7 @@ class Topology:
             return None
 
     def _merge_fngraphs(self, graphs: List[FNGraph]) -> Optional[FNGraph]:
+        """Объединяет несколько FNGraph в один, если они пересекаются по узлам."""
         if not graphs:
             return None
         if len(graphs) == 1:
@@ -251,11 +225,13 @@ class Topology:
                                    included_fibers: Optional[Set[int]] = None,
                                    excluded_fibers: Optional[Set[int]] = None,
                                    excluded_nodes: Optional[Set[int]] = None) -> Optional[CGraph]:
-        graph_type = obj_type
-        if obj_type in DEVICE_TYPES:
-            graph_type = UNIFIED_DEVICE_TYPE
+        """
+        Строит один связный CGraph от указанного объекта.
+        Фильтры передаются в CGraph.build.
+        """
         cgraph = CGraph(self.client, cache=self._cache)
 
+        # Для кабеля с side=None строим от обеих сторон и объединяем
         if obj_type == TYPE_FIBER and side is None and port is not None:
             graphs = []
             for s in [1, 2]:
@@ -281,8 +257,9 @@ class Topology:
                         return graphs[0]
             return None
 
+        # Общий случай
         try:
-            cgraph.build(graph_type, obj_id, port=port, side=side,
+            cgraph.build(obj_type, obj_id, port=port, side=side,
                          included_fibers=included_fibers,
                          excluded_fibers=excluded_fibers,
                          excluded_nodes=excluded_nodes)
@@ -290,14 +267,58 @@ class Topology:
                 return None
             return cgraph
         except Exception as e:
-            self.logger.error(f"Ошибка построения CGraph от {graph_type}:{obj_id}: {e}")
+            self.logger.error(f"Ошибка построения CGraph от {obj_type}:{obj_id}: {e}")
             return None
 
     # ------------------------------------------------------------------------
-    # Основные методы построения (кратко)
+    # Методы получения finish-данных
+    # ------------------------------------------------------------------------
+
+    def get_finish_by_node(self, node_id: int) -> List[Commutation.Get_data]:
+        """
+        Возвращает список уникальных finish-объектов (clps_last == 'finish')
+        для конечных вершин (terminate_vertex=True) в указанном узле.
+        """
+        result: List[Commutation.Get_data] = []
+        for cgraph in self.cgraphs:
+            for v in cgraph.vs:
+                if v['node_id'] != node_id:
+                    continue
+                if 'terminate_vertex' in v.attributes() and v['terminate_vertex']:
+                    if 'finish_data' in v.attributes():
+                        finish_data = v['finish_data']
+                        if finish_data:
+                            result.extend(finish_data)
+        # Удаляем дубликаты по connect_id
+        seen = set()
+        unique = []
+        for item in result:
+            if item.connect_id not in seen:
+                seen.add(item.connect_id)
+                unique.append(item)
+        return unique
+
+    def get_finish_by_object(self, object_type: str, object_id: Union[int, str]) -> Optional[Commutation.Get_data]:
+        """
+        Возвращает finish-объект для указанного объекта, если он есть в графе.
+        terminate_vertex не проверяется.
+        """
+        for cgraph in self.cgraphs:
+            for v in cgraph.vs:
+                if v['obj_type'] == object_type and str(v['obj_id']) == str(object_id):
+                    if 'finish_data' in v.attributes():
+                        finish_data = v['finish_data']
+                        if finish_data:
+                            return finish_data[0]
+                    return None
+        return None
+
+    # ------------------------------------------------------------------------
+    # Основные методы построения
     # ------------------------------------------------------------------------
 
     def _reset(self) -> None:
+        """Сбрасывает текущие графы перед новым построением."""
         self.cgraphs = []
         self.fngraph = None
 
@@ -355,12 +376,15 @@ class Topology:
         excluded_nodes_set = self._normalize_set(excluded_nodes)
 
         if port is None:
+            # Строим от всех портов кросса
             comms = self._get_commutations(TYPE_CROSS, object_id)
             if not comms:
                 self.logger.warning(f"У кросса {object_id} нет коммутаций")
                 return self
             ports = set()
             for rec in comms:
+                if getattr(rec, 'clps_last', None) == 'finish':
+                    continue
                 p = int(rec.clps_mid) if rec.clps_mid is not None else 0
                 if p > 0:
                     ports.add(p)
@@ -412,6 +436,8 @@ class Topology:
                 return self
             interfaces = set()
             for rec in comms:
+                if getattr(rec, 'clps_last', None) == 'finish':
+                    continue
                 s = int(rec.clps_first) if rec.clps_first is not None else 1
                 p = int(rec.clps_mid) if rec.clps_mid is not None else 0
                 interfaces.add((s, p))
@@ -460,6 +486,8 @@ class Topology:
                 return self
             interfaces = set()
             for rec in comms:
+                if getattr(rec, 'clps_last', None) == 'finish':
+                    continue
                 s = int(rec.clps_first) if rec.clps_first is not None else 1
                 p = int(rec.clps_mid) if rec.clps_mid is not None else 0
                 interfaces.add((s, p))
@@ -524,6 +552,7 @@ class Topology:
         excluded_fibers_set = self._normalize_set(excluded_fibers)
         excluded_nodes_set = self._normalize_set(excluded_nodes)
 
+        # Строим FNGraph от узла (через API)
         fngraph = FNGraph(self.client, cache=self._cache)
         fngraph.build(object_id,
                       included_fibers=included_fibers_set,
@@ -534,6 +563,7 @@ class Topology:
             return self
         self._set_fngraph(fngraph)
 
+        # Для каждого узла в FNGraph находим объекты и строим CGraph
         node_ids = [v['node_id'] for v in fngraph.vs]
         for node_id in node_ids:
             if excluded_nodes_set is not None and node_id in excluded_nodes_set:
@@ -592,6 +622,8 @@ class Topology:
 
         fiber_ports = set()
         for rec in comms:
+            if getattr(rec, 'clps_last', None) == 'finish':
+                continue
             fiber_id = int(rec.clps_mid) if rec.clps_mid is not None else 0
             if fiber_id > 0:
                 fiber_ports.add(fiber_id)
@@ -619,7 +651,7 @@ class Topology:
         return self
 
     # ------------------------------------------------------------------------
-    # Метод topology_from_commutation (новый)
+    # Метод topology_from_commutation (построение линейного графа)
     # ------------------------------------------------------------------------
 
     def topology_from_commutation(self,
@@ -632,63 +664,33 @@ class Topology:
         """
         Строит линейный граф (цепочку) от указанного последнего объекта в направлении к начальному объекту
         и возвращает новый Topology, содержащий этот линейный граф.
-
-        Args:
-            last_object_type: тип последнего объекта в трассе
-            last_object_id: идентификатор последнего объекта
-            port: номер порта (для объектов со сторонами обязателен, если неоднозначно)
-            side: сторона (1 или 2) для объектов со сторонами
-            first_object_type: тип первого объекта (если не указан, то до корневого)
-            first_object_id: идентификатор первого объекта
-
-        Returns:
-            Topology: новый объект Topology, содержащий линейный граф
-
-        Raises:
-            ValueError: если невозможно построить однозначный линейный граф
         """
         self.logger.info(f"=== TOPOLOGY FROM COMMUTATION: last={last_object_type}:{last_object_id} (port={port}, side={side}) ===")
 
-        # Получаем линейный граф
         linear_cgraph = self._trace_from_commutation_internal(
             last_object_type, last_object_id, port, side, first_object_type, first_object_id
         )
 
-        # Создаём новый Topology
         new_topology = Topology(self.client)
         new_topology._add_cgraph(linear_cgraph)
         fngraph = new_topology._build_fngraph_from_cgraph(linear_cgraph)
         if fngraph is not None:
             new_topology._set_fngraph(fngraph)
 
-        # --- ГАРАНТИРУЕМ, ЧТО terminate_node ВЗЯТЫ ИЗ ИСХОДНОГО CGraph ---
-        if self.fngraph is not None and new_topology.fngraph is not None:
-            # Собираем terminate_node из исходного FNGraph
-            source_terminate = {}
-            for v in self.fngraph.vs:
-                node_id = v['node_id']
-                if 'terminate_node' in v.attributes():
-                    source_terminate[node_id] = v['terminate_node']
-
-            # Применяем к новому FNGraph
-            for v in new_topology.fngraph.vs:
-                node_id = v['node_id']
-                if node_id in source_terminate:
-                    v['terminate_node'] = source_terminate[node_id]
-
         self.logger.info(f"Создан новый Topology с линейным графом: {linear_cgraph.vcount()} вершин, {linear_cgraph.ecount()} рёбер")
         return new_topology
 
     def _trace_from_commutation_internal(self,
-                                        last_object_type: Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer'],
-                                        last_object_id: Union[int, str],
-                                        port: Optional[int] = None,
-                                        side: Optional[int] = None,
-                                        first_object_type: Optional[Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer']] = None,
-                                        first_object_id: Optional[Union[int, str]] = None) -> CGraph:
+                                         last_object_type: Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer'],
+                                         last_object_id: Union[int, str],
+                                         port: Optional[int] = None,
+                                         side: Optional[int] = None,
+                                         first_object_type: Optional[Literal['switch', 'cross', 'splitter', 'cwdm', 'fiber', 'customer']] = None,
+                                         first_object_id: Optional[Union[int, str]] = None) -> CGraph:
         """
         Внутренний метод, реализующий построение линейного графа.
-        При наличии нескольких CGraph выбирает тот, который содержит обе вершины (last и first_object).
+        Проходит по одному соседу, выбирая внешнее ребро, если есть, иначе внутреннее.
+        При ветвлении использует кратчайший путь до first_object (если задан).
         """
         self.logger.debug(f"=== INTERNAL LINEAR TRACE: last={last_object_type}:{last_object_id} (port={port}, side={side}) ===")
 
@@ -732,55 +734,33 @@ class Topology:
                 raise ValueError(f"Для объекта {last_object_type} необходимо указать сторону (side)")
             last_iface = Interface(last_obj_key, side=side, port=port)
 
-        # --- Поиск графов, содержащих интерфейс ---
+        # --- Поиск графа, содержащего интерфейс ---
         candidate_graphs = [cg for cg in self.cgraphs if last_iface in cg._vertex_index]
         if not candidate_graphs:
             raise ValueError(f"Интерфейс {last_iface} не найден ни в одном из построенных графов")
 
-        # --- Выбор графа ---
+        if len(candidate_graphs) > 1 and (first_object_type is None or first_object_id is None):
+            raise ValueError(
+                f"Интерфейс {last_iface} найден в нескольких графах. "
+                "Укажите first_object для выбора."
+            )
+
         selected_cgraph = None
         if first_object_type is not None and first_object_id is not None:
             first_obj_key = ObjKey(first_object_type, first_object_id)
-            # Ищем граф, содержащий обе вершины
             for cg in candidate_graphs:
-                has_last = last_iface in cg._vertex_index
-                has_first = False
                 for v in cg.vs:
                     if v['obj_type'] == first_object_type and str(v['obj_id']) == str(first_object_id):
-                        has_first = True
+                        selected_cgraph = cg
                         break
-                if has_last and has_first:
-                    selected_cgraph = cg
+                if selected_cgraph is not None:
                     break
             if selected_cgraph is None:
-                # Если граф с обеими вершинами не найден, но возможно first_object есть в другом графе
-                # Проверяем, есть ли first_object вообще в каких-либо графах
-                first_found = False
-                for cg in self.cgraphs:
-                    for v in cg.vs:
-                        if v['obj_type'] == first_object_type and str(v['obj_id']) == str(first_object_id):
-                            first_found = True
-                            break
-                    if first_found:
-                        break
-                if first_found:
-                    raise ValueError(
-                        f"Объект {first_object_type}:{first_object_id} найден в графе, "
-                        f"не содержащем {last_object_type}:{last_object_id}. "
-                        f"Укажите другой first_object или проверьте графы."
-                    )
-                else:
-                    raise ValueError(
-                        f"Объект {first_object_type}:{first_object_id} не найден ни в одном из графов. "
-                        f"Проверьте правильность ID."
-                    )
-        else:
-            # Если first_object не задан, берём первый граф
-            if len(candidate_graphs) > 1:
                 raise ValueError(
-                    f"Интерфейс {last_iface} найден в нескольких графах. "
-                    "Укажите first_object для выбора."
+                    f"Граф с объектом {first_object_type}:{first_object_id} не найден "
+                    "среди графов, содержащих last интерфейс"
                 )
+        else:
             selected_cgraph = candidate_graphs[0]
 
         # --- Линейный обход от last_iface ---
@@ -827,7 +807,7 @@ class Topology:
                     next_iface = external_neighbors[0]
                     self.logger.debug(f"Выбрано внешнее ребро к {next_iface}")
                 else:
-                    # Если задан first_object, пытаемся найти путь через кратчайший маршрут
+                    # Ветвление – пытаемся найти путь до first_object
                     if first_object_type is not None and first_object_id is not None:
                         self.logger.debug(f"Несколько внешних рёбер, ищем путь до first_object")
                         target_idx = None
@@ -842,7 +822,6 @@ class Topology:
                             if not paths or not paths[0]:
                                 raise ValueError("Путь не найден")
                             shortest_path = paths[0]
-                            # Добавляем все вершины пути, кроме текущей
                             for idx in shortest_path[1:]:
                                 n_iface = None
                                 for iface, i in selected_cgraph._vertex_index.items():
@@ -866,7 +845,7 @@ class Topology:
                     next_iface = internal_neighbors[0]
                     self.logger.debug(f"Выбрано внутреннее ребро к {next_iface}")
                 else:
-                    # Несколько внутренних рёбер – ветвление (например, несколько выходов сплиттера)
+                    # Ветвление на внутренних рёбрах (например, несколько выходов сплиттера)
                     if first_object_type is not None and first_object_id is not None:
                         self.logger.debug(f"Несколько внутренних рёбер, ищем путь до first_object")
                         target_idx = None
@@ -900,7 +879,7 @@ class Topology:
                             "Невозможно построить линейный граф. Укажите first_object явно."
                         )
             else:
-                # Нет соседей – тупик
+                # Нет соседей – достигнут тупик
                 if first_object_type is not None and first_object_id is not None:
                     if current_type == first_object_type and str(current_attrs['obj_id']) == str(first_object_id):
                         self.logger.info(f"Достигнут first_object: {current_type}:{current_attrs['obj_id']}")
@@ -920,9 +899,8 @@ class Topology:
                             "не являющемся OLT или switch"
                         )
 
-            # Если мы определили next_iface, проверяем его
             if next_iface is None:
-                # Это случай, когда мы уже вышли из цикла через break
+                # Если мы вышли из цикла через break, то next_iface будет None
                 break
 
             next_type = next_iface.obj.obj_type
@@ -932,6 +910,7 @@ class Topology:
                     f"Линейный граф через CWDM не поддерживается."
                 )
 
+            # Если достигли OLT или switch – завершаем
             if next_type in (TYPE_OLT, TYPE_SWITCH):
                 path.append(next_iface)
                 self.logger.info(f"Достигнут корень: {next_type}:{next_iface.obj.id}")
@@ -943,12 +922,14 @@ class Topology:
                     "не являющееся OLT или switch. Остановка."
                 )
 
+            # Если достигли first_object – завершаем
             if first_object_type is not None and first_object_id is not None:
                 if next_type == first_object_type and str(next_iface.obj.id) == str(first_object_id):
                     path.append(next_iface)
                     self.logger.info(f"Достигнут first_object: {next_type}:{next_iface.obj.id}")
                     break
 
+            # Переходим к следующему
             prev = current
             current = next_iface
             path.append(current)
@@ -962,11 +943,16 @@ class Topology:
                                                  obj_key: ObjKey,
                                                  first_object_type: Optional[str],
                                                  first_object_id: Optional[Union[int, str]]) -> CGraph:
+        """
+        Для терминального объекта с несколькими коммутациями пытается найти путь до first_object.
+        """
         if first_object_type is None or first_object_id is None:
             raise ValueError("Для объекта с несколькими коммутациями необходимо указать first_object")
 
         comms = self._get_commutations(obj_key.obj_type, obj_key.id)
         for rec in comms:
+            if getattr(rec, 'clps_last', None) == 'finish':
+                continue
             p = int(rec.clps_first) if rec.clps_first is not None else 1
             test_iface = Interface(obj_key, side=1, port=p)
             for cg in self.cgraphs:
@@ -988,12 +974,12 @@ class Topology:
         )
 
     def _build_linear_graph_from_path(self, cgraph: CGraph, path_vertices: List[int], start_iface: Interface) -> CGraph:
+        """Строит линейный граф из списка индексов вершин."""
         linear_cgraph = CGraph(self.client, cache=self._cache)
         vertex_indices = {}
 
         for idx in path_vertices:
             v_attrs = cgraph.vs[idx]
-            # Копируем все атрибуты, включая terminate_vertex
             attrs = {key: v_attrs[key] for key in v_attrs.attributes()}
             new_idx = linear_cgraph.add_vertex(**attrs).index
             vertex_indices[idx] = new_idx
@@ -1019,49 +1005,55 @@ class Topology:
     # ------------------------------------------------------------------------
 
     def _get_objects_for_node(self, node_id: int) -> List[Tuple[str, Union[int, str], Optional[Any]]]:
+        """
+        Возвращает список объектов в узле, используя кэш DataCache.
+        Каждый элемент: (obj_type, obj_id, port_info)
+        """
         objects = []
+
+        # Устройства – загружаем все через DataCache
         try:
-            devices = self.client.Device.get_list(node_id=node_id)
-            for dev in devices.to_list() if devices else []:
-                obj_type = getattr(dev, 'object_type', None)
-                obj_id = getattr(dev, 'id', None)
-                if obj_type and obj_id:
-                    objects.append((obj_type, obj_id, None))
+            all_devices = self._cache.get_all_devices(self.client)
+            for dev_id, dev in all_devices.items():
+                if getattr(dev, 'node_id', None) == node_id:
+                    obj_type = getattr(dev, 'object_type', None)
+                    if obj_type and dev_id:
+                        objects.append((obj_type, dev_id, None))
         except Exception as e:
             self.logger.warning(f"Ошибка поиска устройств в узле {node_id}: {e}")
 
+        # Сплиттеры
         try:
-            splitters = self.client.Splitter.get_list(node_id=node_id)
-            for sp in splitters.to_list() if splitters else []:
-                obj_id = getattr(sp, 'id', None)
-                if obj_id:
-                    objects.append((TYPE_SPLITTER, obj_id, None))
+            all_splitters = self._cache.get_all_splitters(self.client)
+            for splitter_id, sp in all_splitters.items():
+                if getattr(sp, 'node_id', None) == node_id:
+                    objects.append((TYPE_SPLITTER, splitter_id, None))
         except Exception as e:
             self.logger.warning(f"Ошибка поиска сплиттеров в узле {node_id}: {e}")
 
+        # CWDM
         try:
-            cwdms = self.client.Cwdm.get_list(node_id=node_id)
-            for cw in cwdms.to_list() if cwdms else []:
-                obj_id = getattr(cw, 'id', None)
-                if obj_id:
-                    objects.append((TYPE_CWDM, obj_id, None))
+            all_cwdms = self._cache.get_all_cwdms(self.client)
+            for cwdm_id, cw in all_cwdms.items():
+                if getattr(cw, 'node_id', None) == node_id:
+                    objects.append((TYPE_CWDM, cwdm_id, None))
         except Exception as e:
             self.logger.warning(f"Ошибка поиска CWDM в узле {node_id}: {e}")
 
+        # Кроссы
         try:
-            crosses = self.client.Cross.get_list(node_id=node_id)
-            for cr in crosses.to_list() if crosses else []:
-                obj_uuid = getattr(cr, 'uuid', None)
-                if obj_uuid:
-                    objects.append((TYPE_CROSS, obj_uuid, None))
+            all_crosses = self._cache.get_all_crosses(self.client)
+            for cross_uuid, cr in all_crosses.items():
+                if getattr(cr, 'node_id', None) == node_id:
+                    objects.append((TYPE_CROSS, cross_uuid, None))
         except Exception as e:
             self.logger.warning(f"Ошибка поиска кроссов в узле {node_id}: {e}")
 
+        # Кабели (волокна)
         try:
-            fibers = self.client.Fiber.get_list(node_id=node_id)
-            for fib in fibers.to_list() if fibers else []:
-                fiber_id = getattr(fib, 'code', None)
-                if fiber_id:
+            all_fibers = self._cache.get_all_fibers(self.client)
+            for fiber_id, fib in all_fibers.items():
+                if getattr(fib, 'node1_id', None) == node_id or getattr(fib, 'node2_id', None) == node_id:
                     objects.append((TYPE_FIBER, fiber_id, None))
         except Exception as e:
             self.logger.warning(f"Ошибка поиска кабелей в узле {node_id}: {e}")
@@ -1129,7 +1121,7 @@ class Topology:
         return [str(i) for i in ids if i is not None]
 
     # ------------------------------------------------------------------------
-    # Методы получения объектов по ID
+    # Методы получения объектов по ID (используют DataCache)
     # ------------------------------------------------------------------------
 
     def customer(self, customer_id: int) -> Optional[Customer.Get_data]:
