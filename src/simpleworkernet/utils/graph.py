@@ -1018,7 +1018,8 @@ class CGraph(ig.Graph):
     # Построение графа
     # ------------------------------------------------------------------------
 
-    def build(self, object_type: str, object_id: Union[int, str], port: Optional[int] = None,
+    def build(self, object_type: str, object_id: Union[int, str], 
+              port: Optional[int] = None,
               side: Optional[int] = None,
               included_fibers: Optional[Union[int, List[int], Set[int]]] = None,
               excluded_fibers: Optional[Union[int, List[int], Set[int]]] = None,

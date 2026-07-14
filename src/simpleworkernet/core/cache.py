@@ -75,7 +75,7 @@ class SmartDataCache:
         self._cache_dir: Optional[Path] = None
         self._cache_file: Optional[Path] = None
         self._enabled = True
-        self._max_size = 50000
+        self._max_size = 500000
         self._auto_save_enabled = True
         self._cache_version = "1.0"
         
