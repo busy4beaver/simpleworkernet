@@ -573,6 +573,11 @@ class Topology:
             if not objects_in_node:
                 continue
             for obj_type, obj_id, port_info in objects_in_node:
+                # Проверяем, есть ли объект уже в каком-либо CGraph
+                obj_key = ObjKey(obj_type, obj_id)
+                if self._find_cgraph_for_object(obj_key) is not None:
+                    self.logger.debug(f"Объект {obj_key} уже есть в графе, пропускаем")
+                    continue
                 try:
                     if obj_type == TYPE_CROSS:
                         if port_info is None:
@@ -1004,6 +1009,14 @@ class Topology:
     # Вспомогательные методы для поиска объектов в узле
     # ------------------------------------------------------------------------
 
+    def _find_cgraph_for_object(self, obj_key: ObjKey) -> Optional[CGraph]:
+        """Возвращает первый CGraph, содержащий вершину с данным obj_key."""
+        for cg in self.cgraphs:
+            for v in cg.vs:
+                if v['obj_type'] == obj_key.obj_type and str(v['obj_id']) == str(obj_key.id):
+                    return cg
+        return None
+
     def _get_objects_for_node(self, node_id: int) -> List[Tuple[str, Union[int, str], Optional[Any]]]:
         """
         Возвращает список объектов в узле, используя кэш DataCache.
@@ -1151,6 +1164,52 @@ class Topology:
 
     def cross(self, cross_uuid: str) -> Optional[Cross.Get_list]:
         return self._load_object(TYPE_CROSS, cross_uuid)
+
+    def save_to_file(self, filepath: str) -> None:
+        """Сохраняет сериализованное состояние топологии в файл."""
+        import pickle
+        data = {
+            'cgraphs': [cg.to_dict() for cg in self.cgraphs],
+            'fngraph': self.fngraph.to_dict() if self.fngraph else None,
+            'cache': self._cache.to_dict(),
+            'version': '1.0',
+        }
+        with open(filepath, 'wb') as f:
+            pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+        self.logger.info(f"Топология сохранена в {filepath}")
+
+    @classmethod
+    def load_from_file(cls, filepath: str, client: WorkerNetClient) -> 'Topology':
+        """Загружает топологию из файла. Клиент должен быть передан явно."""
+        import pickle
+        with open(filepath, 'rb') as f:
+            data = pickle.load(f)
+
+        # Восстанавливаем кэш
+        cache = DataCache.from_dict(data.get('cache', {}))
+
+        # Создаём экземпляр Topology
+        topology = cls(client)
+        topology._cache = cache
+
+        # Восстанавливаем CGraph
+        cgraphs_data = data.get('cgraphs', [])
+        for cg_data in cgraphs_data:
+            cg = CGraph.from_dict(cg_data, client, cache)
+            topology.cgraphs.append(cg)
+
+        # Восстанавливаем FNGraph
+        fngraph_data = data.get('fngraph')
+        if fngraph_data:
+            topology.fngraph = FNGraph.from_dict(fngraph_data, client, cache)
+
+        # Обновляем глобальный кэш (чтобы другие экземпляры использовали восстановленный)
+        DataCache._objects = cache._objects
+        DataCache._commutations = cache._commutations
+        DataCache._all_objects = cache._all_objects
+
+        _get_logger().info(f"Топология загружена из {filepath}")
+        return topology
 
     # ------------------------------------------------------------------------
     # Представление

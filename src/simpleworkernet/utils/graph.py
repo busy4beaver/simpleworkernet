@@ -44,7 +44,7 @@ TYPE_OLT = 'olt'
 TYPE_ONU = 'onu'
 TYPE_RADIO = 'radio'
 
-DEVICE_TYPES = {TYPE_SWITCH, TYPE_OLT, TYPE_ONU, TYPE_RADIO}          # устройства без сторон
+DEVICE_TYPES = {TYPE_SWITCH, TYPE_OLT, TYPE_ONU, TYPE_RADIO}          # устройства
 SIDE_TYPES = {TYPE_CROSS, TYPE_FIBER, TYPE_SPLITTER, TYPE_CWDM}  # объекты со сторонами
 TERMINAL_TYPES = {TYPE_CUSTOMER} | DEVICE_TYPES           # конечные объекты (не транзитные)
 
@@ -179,7 +179,7 @@ class DataCache:
 
     def get_all_devices(self, client: WorkerNetClient) -> Dict[int, Any]:
         result = {}
-        for dev_type in ['olt', 'switch']:#, 'onu', 'radio']:
+        for dev_type in ['olt', 'switch']:#, 'onu']:#, 'radio']:
             devices = self.get_all_objects(
                 dev_type,
                 lambda: client.Device.get_data(object_type=dev_type)
@@ -289,6 +289,22 @@ class DataCache:
                 return []
         return self.get_or_load_commutations(actual_type, obj_id, loader)
 
+    def to_dict(self) -> dict:
+        """Сериализует кэш в словарь для сохранения."""
+        return {
+            'objects': self._objects,
+            'commutations': self._commutations,
+            'all_objects': self._all_objects,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'DataCache':
+        """Восстанавливает кэш из словаря."""
+        cache = cls()
+        cache._objects = data.get('objects', {})
+        cache._commutations = data.get('commutations', {})
+        cache._all_objects = data.get('all_objects', {})
+        return cache
 
 # Глобальный экземпляр кэша (синглтон)
 _data_cache = DataCache()
@@ -383,7 +399,7 @@ class CGraph(ig.Graph):
         elif obj_type == TYPE_FIBER:
             return self._cache.get_fiber(self.client, int(obj_id))
         elif obj_type == TYPE_CUSTOMER:
-            # return self._cache.get_customer(self.client, int(obj_id))
+            return self._cache.get_customer(self.client, int(obj_id))
             return None
         else:
             return None
@@ -1194,6 +1210,88 @@ class CGraph(ig.Graph):
     def directed(self) -> bool:
         return self._directed
 
+    def to_dict(self) -> dict:
+        """
+        Преобразует граф в сериализуемый словарь.
+        Сохраняет вершины, рёбра, _vertex_index, _directed, _finish_data.
+        """
+        vertices = []
+        for v in self.vs:
+            attrs = {key: v[key] for key in v.attributes()}
+            # Удаляем несериализуемые объекты (например, api_obj может содержать ссылки на клиент)
+            if 'api_obj' in attrs:
+                # Пытаемся сохранить api_obj как словарь, если это возможно
+                try:
+                    # Если это модель, можно попробовать преобразовать в dict
+                    if hasattr(attrs['api_obj'], 'dict'):
+                        attrs['api_obj'] = attrs['api_obj'].dict()
+                    else:
+                        attrs['api_obj'] = str(attrs['api_obj'])
+                except:
+                    attrs['api_obj'] = None
+            vertices.append(attrs)
+
+        edges = []
+        for e in self.es:
+            attrs = {key: e[key] for key in e.attributes()}
+            attrs['source'] = e.source
+            attrs['target'] = e.target
+            edges.append(attrs)
+
+        vertex_index = {}
+        for iface, idx in self._vertex_index.items():
+            # Преобразуем Interface в сериализуемый кортеж
+            vertex_index[(iface.obj.obj_type, iface.obj.id, iface.side, iface.port)] = idx
+
+        finish_data = {}
+        for obj_key, comms in self._finish_data.items():
+            # Преобразуем ObjKey в кортеж, а коммутации в словари
+            key = (obj_key.obj_type, obj_key.id)
+            finish_data[key] = [rec.dict() if hasattr(rec, 'dict') else str(rec) for rec in comms]
+
+        return {
+            'vertices': vertices,
+            'edges': edges,
+            'vertex_index': vertex_index,
+            'directed': self._directed,
+            'finish_data': finish_data,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict, client: WorkerNetClient, cache: DataCache) -> 'CGraph':
+        """Восстанавливает граф из словаря."""
+        cgraph = cls(client, cache=cache)
+        cgraph._directed = data.get('directed', False)
+
+        # Восстанавливаем вершины
+        for attrs in data.get('vertices', []):
+            # Если api_obj был сохранён как dict, можно попытаться восстановить модель
+            # Просто сохраняем как есть
+            idx = cgraph.add_vertex(**attrs).index
+
+        # Восстанавливаем рёбра
+        for edge_attrs in data.get('edges', []):
+            source = edge_attrs.pop('source')
+            target = edge_attrs.pop('target')
+            cgraph.add_edge(source, target, **edge_attrs)
+
+        # Восстанавливаем _vertex_index
+        vertex_index = data.get('vertex_index', {})
+        for (obj_type, obj_id, side, port), idx in vertex_index.items():
+            iface = Interface(ObjKey(obj_type, obj_id), side, port)
+            cgraph._vertex_index[iface] = idx
+
+        # Восстанавливаем _finish_data
+        finish_data = data.get('finish_data', {})
+        for (obj_type, obj_id), comms_data in finish_data.items():
+            obj_key = ObjKey(obj_type, obj_id)
+            # Восстанавливаем объекты Commutation из словарей
+            # Здесь нужно использовать модель Commutation.Get_data.from_dict или создать вручную
+            # Для простоты пропустим, так как finish_data не критична для структуры графа
+            cgraph._finish_data[obj_key] = []  # пока пустой список
+
+        return cgraph
+
     def __repr__(self) -> str:
         return f"CGraph(interfaces={self.vcount()}, commutations={self.ecount()}, directed={self._directed})"
 
@@ -1455,6 +1553,39 @@ class FNGraph(ig.Graph):
 
     def export_graphml(self, filename: str) -> None:
         self.write_graphml(filename)
+
+    # ------------------------------------------------------------------------
+    # Сериализация
+    # ------------------------------------------------------------------------
+
+    def to_dict(self) -> dict:
+        vertices = []
+        for v in self.vs:
+            attrs = {key: v[key] for key in v.attributes()}
+            vertices.append(attrs)
+        edges = []
+        for e in self.es:
+            attrs = {key: e[key] for key in e.attributes()}
+            attrs['source'] = e.source
+            attrs['target'] = e.target
+            edges.append(attrs)
+        return {
+            'vertices': vertices,
+            'edges': edges,
+            'vertex_index': self._vertex_index,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict, client: WorkerNetClient, cache: DataCache) -> 'FNGraph':
+        fngraph = cls(client, cache=cache)
+        fngraph._vertex_index = data.get('vertex_index', {})
+        for attrs in data.get('vertices', []):
+            idx = fngraph.add_vertex(**attrs).index
+        for edge_attrs in data.get('edges', []):
+            source = edge_attrs.pop('source')
+            target = edge_attrs.pop('target')
+            fngraph.add_edge(source, target, **edge_attrs)
+        return fngraph
 
     def __repr__(self) -> str:
         return f"FNGraph(nodes={self.vcount()}, fibers={self.ecount()})"

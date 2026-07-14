@@ -574,11 +574,19 @@ class BaseCategory:
         self._client = client
         self._category = self.__class__.__name__.lower()
 
-    def get_link(self, id: int | str):
+    def get_object_link(self, id: int | str):
         try:
             cls = self.__class__
             if hasattr(cls, 'link_cat') and cls.link_cat:
                 return f"{str(self._client._url.rstrip('/')).rsplit('/', 1)[0]}/{cls.link_cat}/{id}"
+        except: pass
+        return None
+    
+    @classmethod
+    def link(cls, client, object_id):
+        try:
+            if hasattr(cls, 'link_cat') and cls.link_cat:
+                return f"{str(client._url.rstrip('/')).rsplit('/', 1)[0]}/{cls.link_cat}/{object_id}"
         except: pass
         return None
     
