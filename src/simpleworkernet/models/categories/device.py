@@ -8,6 +8,8 @@ from ...utils.decorators import api_method
 class Device(BaseCategory):
     """Оборудование"""
 
+    link_cat = 'device'
+
     @api_method(bool)
     def add_mark(self, *, object_id: int, mark_id: int) -> ApiRetBool:
         """Добавление метки
