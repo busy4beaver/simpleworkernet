@@ -399,7 +399,8 @@ class CGraph(ig.Graph):
         elif obj_type == TYPE_FIBER:
             return self._cache.get_fiber(self.client, int(obj_id))
         elif obj_type == TYPE_CUSTOMER:
-            return self._cache.get_customer(self.client, int(obj_id))
+            # для ускорения построений графа, информацию по абонентам не получать
+            # return self._cache.get_customer(self.client, int(obj_id))
             return None
         else:
             return None

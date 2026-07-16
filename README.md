@@ -123,6 +123,9 @@
 ```bash
 pip install simpleworkernet
 ```
+```bash
+pip install git+https://github.com/BusyBeaver54/simpleworkernet.git
+```
 
 ## <a name="quick-start"></a>🚀 Быстрый старт
 
