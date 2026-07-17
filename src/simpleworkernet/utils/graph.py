@@ -9,6 +9,7 @@
 - Классы ObjKey, Interface для идентификации вершин.
 - CGraph: граф коммутаций (наследник igraph.Graph).
 - FNGraph: граф сооружений связи (наследник igraph.Graph).
+- Датаклассы CGraphVertex, CGraphEdge, FNGraphVertex, FNGraphEdge для удобного доступа к данным.
 
 Все данные, загруженные по API, проходят через DataCache и сохраняются для повторного использования.
 """
@@ -153,13 +154,13 @@ class DataCache:
     # ========================================================================
 
     def get_all_splitters(self, client: WorkerNetClient) -> Dict[int, Any]:
-        return self.get_all_objects('splitter', lambda: client.Splitter.get())
+        return self.get_all_objects(TYPE_SPLITTER, lambda: client.Splitter.get())
 
     def get_all_crosses(self, client: WorkerNetClient) -> Dict[str, Any]:
-        return self.get_all_objects('cross', lambda: client.Cross.get_list())
+        return self.get_all_objects(TYPE_CROSS, lambda: client.Cross.get_list())
 
     def get_all_cwdms(self, client: WorkerNetClient) -> Dict[int, Any]:
-        return self.get_all_objects('cwdm', lambda: client.Cwdm.get())
+        return self.get_all_objects(TYPE_CWDM, lambda: client.Cwdm.get())
 
     def get_all_nodes(self, client: WorkerNetClient) -> Dict[int, Any]:
         return self.get_all_objects('node', lambda: client.Node.get())
@@ -171,7 +172,7 @@ class DataCache:
             type_id = getattr(cab_type, 'id', None)
             if type_id is not None:
                 fibers = self.get_all_objects(
-                    'fiber',
+                    TYPE_FIBER,
                     lambda: client.Fiber.get_list(cable_line_type_id=type_id)
                 )
                 result.update(fibers)
@@ -179,7 +180,7 @@ class DataCache:
 
     def get_all_devices(self, client: WorkerNetClient) -> Dict[int, Any]:
         result = {}
-        for dev_type in ['olt', 'switch']:#, 'onu']:#, 'radio']:
+        for dev_type in [TYPE_OLT, TYPE_SWITCH]:#, TYPE_ONU]:#, TYPE_RADIO]:
             devices = self.get_all_objects(
                 dev_type,
                 lambda: client.Device.get_data(object_type=dev_type)
@@ -188,7 +189,7 @@ class DataCache:
         return result
 
     def get_all_customers(self, client: WorkerNetClient) -> Dict[int, Any]:
-        return self.get_all_objects('customer', lambda: client.Module.get_user_list())
+        return self.get_all_objects(TYPE_CUSTOMER, lambda: client.Module.get_user_list())
 
     # ========================================================================
     # Одиночные загрузчики (по ID)
@@ -222,7 +223,7 @@ class DataCache:
             except Exception as e:
                 _logger.warning(f"Не удалось загрузить сплиттер {obj_id}: {e}")
                 return None
-        return self.get_or_load_object('splitter', obj_id, loader)
+        return self.get_or_load_object(TYPE_SPLITTER, obj_id, loader)
 
     def get_fiber(self, client: WorkerNetClient, obj_id: int) -> Optional[Any]:
         def loader() -> Optional[Any]:
@@ -232,7 +233,7 @@ class DataCache:
             except Exception as e:
                 _logger.warning(f"Не удалось загрузить кабель {obj_id}: {e}")
                 return None
-        return self.get_or_load_object('fiber', obj_id, loader)
+        return self.get_or_load_object(TYPE_FIBER, obj_id, loader)
 
     def get_customer(self, client: WorkerNetClient, obj_id: int) -> Optional[Any]:
         def loader() -> Optional[Any]:
@@ -242,7 +243,7 @@ class DataCache:
             except Exception as e:
                 _logger.warning(f"Не удалось загрузить абонента {obj_id}: {e}")
                 return None
-        return self.get_or_load_object('customer', obj_id, loader)
+        return self.get_or_load_object(TYPE_CUSTOMER, obj_id, loader)
 
     def get_node(self, client: WorkerNetClient, obj_id: int) -> Optional[Any]:
         def loader() -> Optional[Any]:
@@ -262,14 +263,14 @@ class DataCache:
             except Exception as e:
                 _logger.warning(f"Не удалось загрузить CWDM {obj_id}: {e}")
                 return None
-        return self.get_or_load_object('cwdm', obj_id, loader)
+        return self.get_or_load_object(TYPE_CWDM, obj_id, loader)
 
     def get_commutations_by_object(self, client: WorkerNetClient,
                                    obj_type: str, obj_id: Union[int, str],
                                    is_finish_data: int = 0) -> List[Any]:
         """
         Загружает коммутации для объекта.
-        Для устройств сохраняет под ключом ('switch', obj_id).
+        Для устройств сохраняет под ключом (TYPE_SWITCH, obj_id).
         """
         actual_type = TYPE_SWITCH if obj_type in DEVICE_TYPES else obj_type
         key = (actual_type, obj_id)
@@ -340,6 +341,68 @@ class Interface:
 
     def __str__(self) -> str:
         return f"{self.obj} side={self.side} port={self.port}"
+
+
+# =============================================================================
+# Датаклассы для удобного доступа к данным вершин и рёбер
+# =============================================================================
+
+@dataclass
+class CGraphVertex:
+    """
+    Представляет вершину графа коммутаций с типизированными полями.
+    Все поля соответствуют атрибутам, хранящимся в igraph.Vertex.
+    """
+    obj_type: str
+    obj_id: str
+    side: int
+    port: int
+    node_id: Optional[int]
+    name: str
+    api_obj: Optional[Any]
+    splitter_type: Optional[str]
+    terminate_vertex: bool
+    finish_data: List[Any]  # список Commutation.Get_data (finish-записи)
+
+
+@dataclass
+class CGraphEdge:
+    """
+    Представляет ребро графа коммутаций с типизированными полями.
+    """
+    source: int          # индекс исходной вершины
+    target: int          # индекс целевой вершины
+    connect_id: int      # идентификатор коммутации
+    is_internal: bool    # флаг внутреннего ребра
+    api_obj: Optional[Any]  # полный объект коммутации (если сохранён)
+
+
+@dataclass
+class FNGraphVertex:
+    """
+    Представляет вершину графа сооружений связи.
+    """
+    node_id: int
+    name: str
+    api_obj: Optional[Any]
+    address_id: Optional[int]
+    coordinates: Optional[Any]
+    type: Optional[str]
+    number: Optional[str]
+    comment: Optional[str]
+    location: Optional[str]
+    is_planned: Optional[bool]
+
+
+@dataclass
+class FNGraphEdge:
+    """
+    Представляет ребро графа сооружений связи (кабель).
+    """
+    source: int
+    target: int
+    fiber_id: int
+    api_obj: Optional[Any]
 
 
 # =============================================================================
@@ -1019,7 +1082,7 @@ class CGraph(ig.Graph):
     # Построение графа
     # ------------------------------------------------------------------------
 
-    def build(self, object_type: str, object_id: Union[int, str], 
+    def build(self, object_type: str, object_id: Union[int, str],
               port: Optional[int] = None,
               side: Optional[int] = None,
               included_fibers: Optional[Union[int, List[int], Set[int]]] = None,
@@ -1212,6 +1275,10 @@ class CGraph(ig.Graph):
     def directed(self) -> bool:
         return self._directed
 
+    # ------------------------------------------------------------------------
+    # Сериализация и десериализация
+    # ------------------------------------------------------------------------
+
     def to_dict(self) -> dict:
         """
         Преобразует граф в сериализуемый словарь.
@@ -1294,6 +1361,82 @@ class CGraph(ig.Graph):
 
         return cgraph
 
+    # ------------------------------------------------------------------------
+    # Удобные методы доступа к данным
+    # ------------------------------------------------------------------------
+
+    def get_vertices(self) -> List[CGraphVertex]:
+        """
+        Возвращает список всех вершин графа в виде объектов CGraphVertex.
+        """
+        result = []
+        for v in self.vs:
+            result.append(CGraphVertex(
+                obj_type=v['obj_type'],
+                obj_id=v['obj_id'],
+                side=v['side'] if 'side' in v.attributes() else 1,
+                port=v['port'] if 'port' in v.attributes() else 0,
+                node_id=v['node_id'] if 'node_id' in v.attributes() else None,
+                name=v['name'] if 'name' in v.attributes() else '',
+                api_obj=v['api_obj'] if 'api_obj' in v.attributes() else None,
+                splitter_type=v['splitter_type'] if 'splitter_type' in v.attributes() else None,
+                terminate_vertex=v['terminate_vertex'] if 'terminate_vertex' in v.attributes() else False,
+                finish_data=v['finish_data'] if 'finish_data' in v.attributes() else []
+            ))
+        return result
+
+    def get_edges(self) -> List[CGraphEdge]:
+        """
+        Возвращает список всех рёбер графа в виде объектов CGraphEdge.
+        """
+        result = []
+        for e in self.es:
+            result.append(CGraphEdge(
+                source=e.source,
+                target=e.target,
+                connect_id=e['connect_id'] if 'connect_id' in e.attributes() else 0,
+                is_internal=e['is_internal'] if 'is_internal' in e.attributes() else False,
+                api_obj=e['api_obj'] if 'api_obj' in e.attributes() else None
+            ))
+        return result
+
+    def get_vertex(self, index: int) -> Optional[CGraphVertex]:
+        """
+        Возвращает вершину по индексу в виде CGraphVertex.
+        Возвращает None, если индекс невалиден.
+        """
+        if index < 0 or index >= self.vcount():
+            return None
+        v = self.vs[index]
+        return CGraphVertex(
+            obj_type=v['obj_type'],
+            obj_id=v['obj_id'],
+            side=v['side'] if 'side' in v.attributes() else 1,
+            port=v['port'] if 'port' in v.attributes() else 0,
+            node_id=v['node_id'] if 'node_id' in v.attributes() else None,
+            name=v['name'] if 'name' in v.attributes() else '',
+            api_obj=v['api_obj'] if 'api_obj' in v.attributes() else None,
+            splitter_type=v['splitter_type'] if 'splitter_type' in v.attributes() else None,
+            terminate_vertex=v['terminate_vertex'] if 'terminate_vertex' in v.attributes() else False,
+            finish_data=v['finish_data'] if 'finish_data' in v.attributes() else []
+        )
+
+    def get_edge(self, index: int) -> Optional[CGraphEdge]:
+        """
+        Возвращает ребро по индексу в виде CGraphEdge.
+        Возвращает None, если индекс невалиден.
+        """
+        if index < 0 or index >= self.ecount():
+            return None
+        e = self.es[index]
+        return CGraphEdge(
+            source=e.source,
+            target=e.target,
+            connect_id=e['connect_id'] if 'connect_id' in e.attributes() else 0,
+            is_internal=e['is_internal'] if 'is_internal' in e.attributes() else False,
+            api_obj=e['api_obj'] if 'api_obj' in e.attributes() else None
+        )
+
     def __repr__(self) -> str:
         return f"CGraph(interfaces={self.vcount()}, commutations={self.ecount()}, directed={self._directed})"
 
@@ -1353,7 +1496,7 @@ class FNGraph(ig.Graph):
         for fiber in fibers:
             fiber_id = getattr(fiber, 'code', None)
             if fiber_id is not None:
-                self._cache.set_object('fiber', fiber_id, fiber)
+                self._cache.set_object(TYPE_FIBER, fiber_id, fiber)
         return fibers
 
     # ------------------------------------------------------------------------
@@ -1400,7 +1543,7 @@ class FNGraph(ig.Graph):
         fiber_groups: Dict[int, Set[int]] = defaultdict(set)
 
         for v in cg.vs:
-            if v['obj_type'] != 'fiber':
+            if v['obj_type'] != TYPE_FIBER:
                 continue
             fiber_id = int(v['obj_id'])
             node_id = v['node_id'] if 'node_id' in v.attributes() else None
@@ -1588,6 +1731,80 @@ class FNGraph(ig.Graph):
             target = edge_attrs.pop('target')
             fngraph.add_edge(source, target, **edge_attrs)
         return fngraph
+
+    # ------------------------------------------------------------------------
+    # Удобные методы доступа к данным
+    # ------------------------------------------------------------------------
+
+    def get_vertices(self) -> List[FNGraphVertex]:
+        """
+        Возвращает список всех вершин графа в виде объектов FNGraphVertex.
+        """
+        result = []
+        for v in self.vs:
+            result.append(FNGraphVertex(
+                node_id=v['node_id'],
+                name=v['name'] if 'name' in v.attributes() else '',
+                api_obj=v['api_obj'] if 'api_obj' in v.attributes() else None,
+                address_id=v['address_id'] if 'address_id' in v.attributes() else None,
+                coordinates=v['coordinates'] if 'coordinates' in v.attributes() else None,
+                type=v['type'] if 'type' in v.attributes() else None,
+                number=v['number'] if 'number' in v.attributes() else None,
+                comment=v['comment'] if 'comment' in v.attributes() else None,
+                location=v['location'] if 'location' in v.attributes() else None,
+                is_planned=v['is_planned'] if 'is_planned' in v.attributes() else None
+            ))
+        return result
+
+    def get_edges(self) -> List[FNGraphEdge]:
+        """
+        Возвращает список всех рёбер графа в виде объектов FNGraphEdge.
+        """
+        result = []
+        for e in self.es:
+            result.append(FNGraphEdge(
+                source=e.source,
+                target=e.target,
+                fiber_id=e['fiber_id'] if 'fiber_id' in e.attributes() else 0,
+                api_obj=e['api_obj'] if 'api_obj' in e.attributes() else None
+            ))
+        return result
+
+    def get_vertex(self, index: int) -> Optional[FNGraphVertex]:
+        """
+        Возвращает вершину по индексу в виде FNGraphVertex.
+        Возвращает None, если индекс невалиден.
+        """
+        if index < 0 or index >= self.vcount():
+            return None
+        v = self.vs[index]
+        return FNGraphVertex(
+            node_id=v['node_id'],
+            name=v['name'] if 'name' in v.attributes() else '',
+            api_obj=v['api_obj'] if 'api_obj' in v.attributes() else None,
+            address_id=v['address_id'] if 'address_id' in v.attributes() else None,
+            coordinates=v['coordinates'] if 'coordinates' in v.attributes() else None,
+            type=v['type'] if 'type' in v.attributes() else None,
+            number=v['number'] if 'number' in v.attributes() else None,
+            comment=v['comment'] if 'comment' in v.attributes() else None,
+            location=v['location'] if 'location' in v.attributes() else None,
+            is_planned=v['is_planned'] if 'is_planned' in v.attributes() else None
+        )
+
+    def get_edge(self, index: int) -> Optional[FNGraphEdge]:
+        """
+        Возвращает ребро по индексу в виде FNGraphEdge.
+        Возвращает None, если индекс невалиден.
+        """
+        if index < 0 or index >= self.ecount():
+            return None
+        e = self.es[index]
+        return FNGraphEdge(
+            source=e.source,
+            target=e.target,
+            fiber_id=e['fiber_id'] if 'fiber_id' in e.attributes() else 0,
+            api_obj=e['api_obj'] if 'api_obj' in e.attributes() else None
+        )
 
     def __repr__(self) -> str:
         return f"FNGraph(nodes={self.vcount()}, fibers={self.ecount()})"
