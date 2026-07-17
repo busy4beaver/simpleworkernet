@@ -57,11 +57,11 @@ class Cable_route(BaseCategory):
         object_first_id: int
         object_second_type: vStr
         object_second_id: int
-        comment: vStr | None
+        comment: vStr
         owner_id: int | None
         length: int | None
         date_add: vStr
-        date_install: vStr | None
+        date_install: vStr
 
     @api_method(Get_route)
     def get_route(self, *, id: int | str = None) -> ApiRetSData[Get_route]: 
@@ -79,10 +79,10 @@ class Cable_route(BaseCategory):
         id: int
         cable_route_id: int
         number: int
-        comment: vStr | None
+        comment: vStr
         diameter: int | None
         date_add: vStr
-        date_install: vStr | None
+        date_install: vStr
         content: List
 
     @api_method(GetDuct)

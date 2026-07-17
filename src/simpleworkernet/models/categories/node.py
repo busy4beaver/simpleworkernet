@@ -153,7 +153,7 @@ class Node(BaseCategory):
         parent_id: int
         is_planned: int
         location: vStr
-        comment: vStr | None
+        comment: vStr
         type: int
         custom_icon_id: int
         number: vStr

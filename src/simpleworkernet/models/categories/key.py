@@ -34,7 +34,7 @@ class Key(BaseCategory):
     class Get_list(BaseModel):
         id: int
         name: vStr
-        comment: vStr | None
+        comment: vStr
         building_id: int
         employee_id: int | None
 

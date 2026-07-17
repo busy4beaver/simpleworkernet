@@ -28,7 +28,7 @@ class Call(BaseCategory):
         phone: vStr
         asterisk_id: vStr
         customer_id: int | None
-        answer_phone: vStr | None
+        answer_phone: vStr
         additional_data: List
 
     @api_method(Get)

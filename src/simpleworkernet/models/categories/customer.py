@@ -241,7 +241,7 @@ class Customer(BaseCategory):
     class Get_data(BaseModel):
         @smart_model
         class Agreement(BaseModel):
-            number: vStr | None
+            number: vStr
             date: vStr
         @smart_model
         class Traffic(BaseModel):
@@ -262,7 +262,7 @@ class Customer(BaseCategory):
             container_name = CollapsedField(type_filter=SegmentType.FLD)
         @smart_model
         class Service(BaseModel):
-            cost: vStr | None
+            cost: vStr
             comment: vStr
             date_add: vStr
         @smart_model
@@ -278,7 +278,7 @@ class Customer(BaseCategory):
             id: int
             value: vStr
         id: int
-        login: vStr | None
+        login: vStr
         full_name: vStr
         flag_corporate: int
         balance: int | float
@@ -299,9 +299,9 @@ class Customer(BaseCategory):
         billing_id: int
         tariff: List[Tariff]
         service: List[Service]
-        comment: vStr | None
+        comment: vStr
         ip_mac: List[Ip_mac]
-        comment2: vStr | None
+        comment2: vStr
         billing: Billing = None
         manager_id: int = None
         additional_customer_data: List[Additional_data] = None

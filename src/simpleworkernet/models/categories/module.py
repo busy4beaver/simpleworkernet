@@ -62,7 +62,7 @@ class Module(BaseCategory):
         node_id: int | None
         entrance: int
         location: vStr
-        comment: vStr | None
+        comment: vStr
         geo: vStr
         date_activity: vStr
         date_create: vStr
@@ -70,7 +70,7 @@ class Module(BaseCategory):
         snmp_version: vStr
         snmp_port: int
         snmp_read_community: vStr
-        software_version: vStr | None
+        software_version: vStr
 
     @api_method(Get_device_list)
     def get_device_list(self, *, device_type: Literal['switch','radio','other'] = None) -> ApiRetSData[Get_device_list]: 
@@ -102,7 +102,7 @@ class Module(BaseCategory):
         parent_ids: List[int]
         floor: int
         entrance: int
-        apartment: vStr | None
+        apartment: vStr
         full_name: vStr
 
     @api_method(Get_house_list)
@@ -186,7 +186,7 @@ class Module(BaseCategory):
         speed: Speed
         traffic: int
         service_type: int
-        additional_comment: vStr | None
+        additional_comment: vStr
         is_in_billing: int
         erp_id: int
 
@@ -215,7 +215,7 @@ class Module(BaseCategory):
         date: vStr
         type: vStr
         name: vStr
-        data: vStr | None
+        data: vStr
         comment: vStr
 
     @api_method(Get_user_history)
@@ -227,7 +227,7 @@ class Module(BaseCategory):
     class Get_user_list(BaseModel):
         @smart_model
         class Agreement(BaseModel):
-            number: vStr | None
+            number: vStr
             date: vStr
         @smart_model
         class Traffic(BaseModel):
@@ -248,7 +248,7 @@ class Module(BaseCategory):
             container_name = CollapsedField(type_filter=SegmentType.FLD)
         @smart_model
         class Service(BaseModel):
-            cost: vStr | None
+            cost: vStr
             comment: vStr
             date_add: vStr
         @smart_model
@@ -264,7 +264,7 @@ class Module(BaseCategory):
             id: int
             value: vStr
         id: int
-        login: vStr | None
+        login: vStr
         full_name: vStr
         flag_corporate: int
         balance: int | float
@@ -285,9 +285,9 @@ class Module(BaseCategory):
         billing_id: int
         tariff: List[Tariff]
         service: List[Service]
-        comment: vStr | None
+        comment: vStr
         ip_mac: List[Ip_mac]
-        comment2: vStr | None
+        comment2: vStr
         billing: Billing = None
         manager_id: int = None
         additional_customer_data: List[Additional_data] = None
@@ -321,7 +321,7 @@ class Module(BaseCategory):
         user_id: int
         msg_date: vStr
         subject: vStr
-        text: vStr | None
+        text: vStr
 
     @api_method(Get_user_messages)
     def get_user_messages(self) -> ApiRetSData[Get_user_messages]: 

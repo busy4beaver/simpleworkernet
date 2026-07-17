@@ -284,7 +284,7 @@ class Inventory(BaseCategory):
     class Get_inventory_storage(BaseModel):
         id: int
         name: vStr
-        description: vStr | None
+        description: vStr
         employee_access: List[int]
         employee_access_read: List[int]
 

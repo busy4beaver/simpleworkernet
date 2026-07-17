@@ -132,7 +132,7 @@ class Employee(BaseCategory):
             division_id: int
             position: vStr
             date_add: vStr
-            date_out: vStr | None
+            date_out: vStr
             is_work: int
         id: int
         name: vStr
@@ -231,7 +231,7 @@ class Employee(BaseCategory):
         history_type_id: int
         object_type_id: int
         object_id: int
-        description: vStr | None
+        description: vStr
 
     @api_method(Get_history)
     def get_history(self, *, date_from: str, date_to: str, employee_id: int | str = None, type_id: int | str = None, object_id: int | str = None) -> ApiRetSData[Get_history]:

@@ -249,7 +249,7 @@ class Fiber(BaseCategory):
                 name: vStr
                 htmlCode: vStr
                 tag_count: int | None
-                tag_color: vStr | None
+                tag_color: vStr
             number: int
             id: int
             moduleColor: Color

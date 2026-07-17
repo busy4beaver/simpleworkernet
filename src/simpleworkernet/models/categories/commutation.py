@@ -40,7 +40,7 @@ class Commutation(BaseCategory):
     class Get_data(BaseModel):
         object_type: vStr
         object_id: int
-        object_uuid: vStr | None
+        object_uuid: vStr
         direction: int
         interface: int
         comment: vStr
