@@ -41,6 +41,8 @@ class Topology:
     Использует общий глобальный кэш DataCache.
     """
 
+    _data_version = '1.0'
+
     def __init__(self, client: WorkerNetClient):
         self.client: WorkerNetClient = client
         self.logger = _get_logger()
@@ -1169,28 +1171,36 @@ class Topology:
         """Сохраняет сериализованное состояние топологии в файл."""
         import pickle
         data = {
+            'client': {'url':self.client._url, 'apikey': self.client._apikey},
             'cgraphs': [cg.to_dict() for cg in self.cgraphs],
             'fngraph': self.fngraph.to_dict() if self.fngraph else None,
             'cache': self._cache.to_dict(),
-            'version': '1.0',
+            'version': Topology._data_version,
         }
         with open(filepath, 'wb') as f:
             pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
         self.logger.info(f"Топология сохранена в {filepath}")
 
     @classmethod
-    def load_from_file(cls, filepath: str, client: WorkerNetClient) -> 'Topology':
-        """Загружает топологию из файла. Клиент должен быть передан явно."""
+    def load_from_file(cls, filepath: str) -> 'Topology':
+        """Загружает топологию из файла."""
         import pickle
         with open(filepath, 'rb') as f:
             data = pickle.load(f)
 
+        if data['version'] != Topology._data_version:
+            raise ValueError(f"Неподдерживаемая версия данных {data['version']}, текущая версия {Topology._data_version}")
+
         # Восстанавливаем кэш
         cache = DataCache.from_dict(data.get('cache', {}))
+
+        client = WorkerNetClient('',data['client']['apikey'])
+        client._url = data['client']['url']
 
         # Создаём экземпляр Topology
         topology = cls(client)
         topology._cache = cache
+        topology.logger = _get_logger()
 
         # Восстанавливаем CGraph
         cgraphs_data = data.get('cgraphs', [])
@@ -1208,7 +1218,7 @@ class Topology:
         DataCache._commutations = cache._commutations
         DataCache._all_objects = cache._all_objects
 
-        _get_logger().info(f"Топология загружена из {filepath}")
+        topology.logger.info(f"Топология загружена из {filepath}")
         return topology
 
     # ------------------------------------------------------------------------
