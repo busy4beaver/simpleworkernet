@@ -29,9 +29,9 @@ keywords = ["workernet", "userside", "api", "client", "billing"]
 cleanup-simpleworkernet = "simpleworkernet.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/BusyBeaver54"
-Repository = "https://github.com/BusyBeaver54/simpleworkernet"
-Documentation = "https://github.com/BusyBeaver54/simpleworkernet#readme"
+Homepage = "https://github.com/busy4beaver"
+Repository = "https://github.com/busy4beaver/simpleworkernet"
+Documentation = "https://github.com/busy4beaver/simpleworkernet#readme"
 "Donate" = "https://boosty.to/busybeaver/donate"
 
 [tool.setuptools.packages.find]
