@@ -8,7 +8,7 @@ version = "1.0.3"
 description = "Python клиент для API WorkerNet с поддержкой SmartData"
 readme = "README.md"
 authors = [
-    { name = "BusyBeaver", email = "busybeaver.bb@gmail.com" },
+    { name = "Андрей Литвинов", email = "busybeaver.bb@gmail.com" },
 ]
 license = { file = "LICENSE" }
 requires-python = ">=3.12"
@@ -18,12 +18,14 @@ dependencies = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
     "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-keywords = ["workernet", "userside", "api", "client", "billing"]
+keywords = ["workernet", "userside", "api", "erp"]
 
 [project.scripts]
 cleanup-simpleworkernet = "simpleworkernet.cli:main"
@@ -40,15 +42,3 @@ include = ["simpleworkernet*"]
 
 [tool.setuptools.package-data]
 simpleworkernet = ["py.typed"]
-
-# [tool.pytest.ini_options]
-# testpaths = ["tests"]
-# python_files = ["test_*.py"]
-# python_classes = ["Test*"]
-# python_functions = ["test_*"]
-# addopts = "-v --tb=short --strict-markers"
-# markers = [
-#     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-#     "integration: marks tests as integration tests",
-#     "graphics: marks tests that require graphics libraries",
-# ]
