@@ -2,8 +2,10 @@
 
 Высокопроизводительный Python клиент для REST API системы WorkerNet с интеллектуальной системой трансформации и типизации сложных JSON структур
 
-[![Tag](https://img.shields.io/github/v/tag/busy4beaver/simpleworkernet?color=00c2e8)](#)
-[![Downloads](https://img.shields.io/github/downloads/busy4beaver/simpleworkernet/total?color=c87bff)](#)
+[![Tag](https://img.shields.io/github/v/tag/busy4beaver/simpleautocad?color=00c2e8)](#)
+[![Downloads](https://img.shields.io/github/downloads/busy4beaver/simpleautocad/total?color=c87bff)](#)
+[![YooMoney](https://img.shields.io/badge/Donation-Yoo.money-blue.svg)](https://yoomoney.ru/to/4100118099549894) 
+[![Boosty](https://img.shields.io/badge/Boosty-donate-orange.svg)](https://boosty.to/busybeaver/donate)
 
 ---
 
@@ -86,7 +88,6 @@
     - [Структура хранения графов](#структура-хранения-графов)
     - [Пример полного рабочего процесса](#пример-полного-рабочего-процесса-1)
     - [Особенности реализации](#особенности-реализации)
-  - [Автор](#автор)
   - [☕ Поддержать проект](#-поддержать-проект)
 
 ---
@@ -1381,14 +1382,9 @@ print(f"Корневое устройство: {root_vertex['obj_type']}:{root_v
     Автоматическое объединение: при построении от нескольких точек входа графы автоматически объединяются в связные компоненты.
 
     Линейный граф: метод topology_from_commutation строит цепочку, проходя через сплиттеры строго от выхода к входу, через кроссы и кабели — транзитом через один порт.
-
-## <a name="author"></a>Автор
-
- - [Андрей Литвинов](https://t.me/busy4beaver)
   
 ## ☕ Поддержать проект
 
 Если этот проект оказался вам полезен, вы можете поддержать его развитие:
-
 [![YooMoney](https://img.shields.io/badge/Donation-Yoo.money-blue.svg)](https://yoomoney.ru/to/4100118099549894) 
 [![Boosty](https://img.shields.io/badge/Boosty-donate-orange.svg)](https://boosty.to/busybeaver/donate)
