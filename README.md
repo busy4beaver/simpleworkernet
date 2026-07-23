@@ -1385,6 +1385,5 @@ print(f"Корневое устройство: {root_vertex['obj_type']}:{root_v
   
 ## ☕ Поддержать проект
 
-Если этот проект оказался вам полезен, вы можете поддержать его развитие:
 [![YooMoney](https://img.shields.io/badge/Donation-Yoo.money-blue.svg)](https://yoomoney.ru/to/4100118099549894) 
 [![Boosty](https://img.shields.io/badge/Boosty-donate-orange.svg)](https://boosty.to/busybeaver/donate)
