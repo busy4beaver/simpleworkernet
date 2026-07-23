@@ -2,6 +2,9 @@
 
 Высокопроизводительный Python клиент для REST API системы WorkerNet с интеллектуальной системой трансформации и типизации сложных JSON структур
 
+[![Tag](https://img.shields.io/github/v/tag/busy4beaver/simpleworkernet?color=00c2e8)](#)
+[![Downloads](https://img.shields.io/github/downloads/busy4beaver/simpleworkernet/total?color=c87bff)](#)
+
 ---
 
 ## Содержание
