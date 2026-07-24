@@ -5,16 +5,12 @@
 [![YooMoney](https://img.shields.io/badge/Donation-Yoo.money-blue.svg)](https://yoomoney.ru/to/4100118099549894) 
 [![Boosty](https://img.shields.io/badge/Boosty-donate-orange.svg)](https://boosty.to/busybeaver/donate)
 
-# SimpleWorkerNet
-
-Высокопроизводительный Python клиент для REST API системы WorkerNet с интеллектуальной системой трансформации и типизации сложных JSON структур
+SimpleWorkerNet - Python клиент для REST API системы WorkerNet с интеллектуальной системой трансформации и типизации сложных JSON структур
 
 ---
 
-## Содержание
+Содержание
 
-- [SimpleWorkerNet](#simpleworkernet)
-  - [Содержание](#содержание)
   - [Особенности](#особенности)
     - [SmartData Framework](#smartdata-framework)
     - [BaseModel Engine](#basemodel-engine)
