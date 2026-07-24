@@ -1,6 +1,5 @@
 # SimpleWorkerNet
-[![SimpleWorkerNet](src/assets/badge.svg)](#)
-
+[![SimpleWorkerNet](src/assets/badge.svg)](#)  
 [![Tag](https://img.shields.io/github/v/tag/busy4beaver/simpleworkernet?color=00c2e8)](#)
 [![Supported Python versions](https://img.shields.io/pypi/pyversions/simpleworkernet.svg?logo=python&logoColor=FFE873)](https://pypi.org/project/simpleworkernet/)
 [![Licence](https://img.shields.io/github/license/busy4beaver/simpleworkernet.svg)](LICENSE)  
