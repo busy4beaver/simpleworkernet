@@ -81,7 +81,7 @@ else:
     # ------------------------------------------------------------------------
     if not _IN_CLEANUP:
         # 7. Загружаем кэш если включено
-        if config_manager.get().cache_enabled:
+        if config_manager.cache_enabled:
             if not cache.load():
                 log.info("Создание нового кэша...")
                 # Импортируем модели для предзагрузки
