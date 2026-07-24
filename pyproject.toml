@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simpleworkernet"
-version = "1.0.5"
+version = "1.0.6"
 description = "Python клиент для API WorkerNet с поддержкой SmartData"
 readme = "README.md"
 authors = [
-    { name = "Андрей Литвинов", email = "busybeaver.bb@gmail.com" },
+    { name = "Андрей Литвинов", email = "busy4beaver@gmail.com" },
 ]
 license = { file = "LICENSE" }
 requires-python = ">=3.12"

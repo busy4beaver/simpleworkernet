@@ -56,10 +56,10 @@ def get_app_logs_dir(app_name: str) -> Path:
 class CacheConfig:
     """Конфигурация кэша для SmartDataCache"""
     enabled: bool = True
-    max_size: int = 50000
+    max_size: int = 200000
     evict_strategy: CacheEvictStrategy = 'lru'   
-    evict_threshold: float = 0.9                 # порог заполнения
-    evict_percent: float = 0.2                   # доля удаляемых записей
+    evict_threshold: float = 0.95                 # порог заполнения
+    evict_percent: float = 0.25                   # доля удаляемых записей
     auto_save: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
@@ -294,8 +294,9 @@ class ConfigManager:
 
     @cache_evict_strategy.setter
     def cache_evict_strategy(self, value: str):
-        self._config.cache.evict_strategy = value
-        self._get_logger().info(f"Стратегия очистки кэша изменена на {value}")
+        if self._config.cache.evict_strategy != value:
+            self._config.cache.evict_strategy = value
+            self._get_logger().info(f"Стратегия очистки кэша изменена на {value}")
 
     @property
     def cache_evict_threshold(self) -> float:

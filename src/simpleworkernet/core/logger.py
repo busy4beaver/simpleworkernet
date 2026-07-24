@@ -151,10 +151,7 @@ class WorkerNetLogger:
         
         self._logger.addHandler(handler)
         self._console_handler = handler
-        
-        # Пробное сообщение для проверки
-        self._logger.log(self._console_level, f"Консольный вывод активирован (уровень: {logging.getLevelName(self._console_level)})")
-    
+
     def _setup_file_handler(self, max_log_files: int):
         """Создает файловый обработчик с его уровнем"""
         if not self._log_dir:
@@ -193,11 +190,14 @@ class WorkerNetLogger:
             if not self._suppress_output:
                 self._setup_console_handler()
                 self._console_output = True
+                self._logger.log(self._console_level, f"Консольный вывод активирован: (уровень: {logging.getLevelName(self._console_level)})")
         else:
             if self._console_handler:
                 self._logger.removeHandler(self._console_handler)
                 self._console_handler = None
                 self._console_output = False
+                self._logger.log(self._console_level, f"Консольный вывод выключен")
+    
     
     def set_console_level(self, level: Union[str, int]):
         """Изменяет уровень логирования для консоли"""

@@ -1,13 +1,16 @@
 # simpleworkernet/core/cache.py
 """
-Менеджер кэша для SmartData
+Менеджер кэша для SmartData.
+Поддерживает стратегии: LRU, LFU, FIFO.
+Настройки управляются через ConfigManager.
 """
 import time
 import pickle
 import hashlib
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
+from collections import OrderedDict, deque
 
 from .exceptions import WorkerNetCacheError
 
@@ -17,7 +20,6 @@ _config_manager = None
 
 
 def _get_logger():
-    """Ленивый импорт логгера"""
     global _logger
     if _logger is None:
         from .logger import log
@@ -26,7 +28,6 @@ def _get_logger():
 
 
 def _get_config_manager():
-    """Ленивый импорт ConfigManager (экземпляра)"""
     global _config_manager
     if _config_manager is None:
         from .config import config_manager
@@ -36,7 +37,6 @@ def _get_config_manager():
 
 @dataclass
 class CacheStats:
-    """Статистика кэша"""
     hits: int = 0
     misses: int = 0
     numeric_hits: int = 0
@@ -47,11 +47,6 @@ class CacheStats:
 
 
 class SmartDataCache:
-    """
-    Менеджер кэша для SmartData.
-    Синглтон для текущего процесса, использует имя текущего приложения.
-    """
-
     _instance: Optional['SmartDataCache'] = None
 
     def __new__(cls) -> 'SmartDataCache':
@@ -64,7 +59,6 @@ class SmartDataCache:
         if self._initialized:
             return
 
-        # Получаем информацию из ConfigManager
         config_manager = _get_config_manager()
         self.app_name = config_manager.app_name
 
@@ -72,20 +66,19 @@ class SmartDataCache:
         self._numeric_cache: Dict[str, bool] = {}
         self._stats = CacheStats()
 
-        # Для LRU и FIFO
-        self._access_order: List[str] = []    # порядок доступа (последний использованный в конце)
-        self._insertion_order: List[str] = [] # порядок добавления
+        # Структуры для стратегий
+        self._order = None
+        self._strategy = None
 
         self._cache_dir: Optional[Path] = None
         self._cache_file: Optional[Path] = None
-        self._cache_version = 2
+        self._cache_version = "1.0"
         self._dirty = False
 
         self._apply_config()
         self._initialized = True
 
     def _apply_config(self):
-        """Применяет текущую конфигурацию из ConfigManager к локальным атрибутам."""
         config_manager = _get_config_manager()
         config = config_manager.get_cache_config()
         cache_cfg = config_manager.get().cache
@@ -95,7 +88,16 @@ class SmartDataCache:
         self._auto_save_enabled = cache_cfg.auto_save
         self._evict_threshold = max(0.1, min(1.0, cache_cfg.evict_threshold))
         self._evict_percent = max(0.01, min(1.0, cache_cfg.evict_percent))
-        self._evict_strategy = cache_cfg.evict_strategy.lower()  # 'lru', 'lfu', 'fifo'
+        new_strategy = cache_cfg.evict_strategy.lower()
+
+        if new_strategy != self._strategy:
+            self._strategy = new_strategy
+            if self._strategy == 'lru':
+                self._order = OrderedDict()
+            elif self._strategy == 'fifo':
+                self._order = deque()
+            else:  # lfu
+                self._order = None
 
         cache_dir = config.get('cache_dir')
         if cache_dir:
@@ -104,7 +106,6 @@ class SmartDataCache:
             self._generate_cache_path()
 
     def _generate_cache_path(self):
-        """Генерирует путь к файлу кэша"""
         if not self._cache_dir:
             return
         import inspect
@@ -120,12 +121,10 @@ class SmartDataCache:
         self._cache_file = self._cache_dir / f"cache_{hash_str}.pkl"
 
     def enable(self):
-        """Включает кэширование (обновляет конфиг и себя)"""
         config_manager = _get_config_manager()
         config_manager.cache_enabled = True
 
     def disable(self):
-        """Отключает кэширование (обновляет конфиг и себя)"""
         config_manager = _get_config_manager()
         config_manager.cache_enabled = False
 
@@ -136,7 +135,6 @@ class SmartDataCache:
         return self._cache_file
 
     def save(self, force: bool = False) -> bool:
-        """Сохраняет кэш в файл, только если были изменения"""
         if not self._enabled:
             return False
         if not self._auto_save_enabled and not force:
@@ -149,14 +147,19 @@ class SmartDataCache:
 
         self._cache_file.parent.mkdir(parents=True, exist_ok=True)
 
+        order_data = None
+        if self._strategy == 'lru' and isinstance(self._order, OrderedDict):
+            order_data = list(self._order.keys())
+        elif self._strategy == 'fifo' and isinstance(self._order, deque):
+            order_data = list(self._order)
+
         cache_data = {
             'version': self._cache_version,
             'timestamp': time.time(),
             'field_name_cache': dict(self._field_name_cache),
             'numeric_cache': dict(self._numeric_cache),
             'access_count': dict(self._stats.access_count),
-            'access_order': self._access_order,          # сохраняем порядок для LRU
-            'insertion_order': self._insertion_order,    # для FIFO
+            'order_data': order_data,
             'hits': self._stats.hits,
             'misses': self._stats.misses,
             'numeric_hits': self._stats.numeric_hits,
@@ -165,13 +168,20 @@ class SmartDataCache:
         try:
             with open(self._cache_file, 'wb') as f:
                 pickle.dump(cache_data, f)
+
             self._stats.last_save_time = time.time()
             size_kb = self._cache_file.stat().st_size / 1024
             self._dirty = False
+
+            total_entries = len(self._field_name_cache) + len(self._numeric_cache)
             _get_logger().info(
-                f"Кэш сохранён: {len(self._field_name_cache)} полей, {size_kb:.1f} КБ"
+                f"Кэш сохранён: {len(self._field_name_cache)} полей, "
+                f"{len(self._numeric_cache)} чисел, "
+                f"всего записей={total_entries}, "
+                f"размер={size_kb:.1f} КБ"
             )
             return True
+
         except Exception as e:
             raise WorkerNetCacheError(f"Ошибка сохранения кэша: {e}")
 
@@ -195,15 +205,24 @@ class SmartDataCache:
             self._stats.numeric_hits = cache_data.get('numeric_hits', 0)
             self._stats.last_load_time = time.time()
 
-            # Восстанавливаем порядки
-            self._access_order = cache_data.get('access_order', [])
-            self._insertion_order = cache_data.get('insertion_order', [])
+            order_data = cache_data.get('order_data')
+            if self._strategy == 'lru' and isinstance(self._order, OrderedDict):
+                self._order.clear()
+                if order_data:
+                    for key in order_data:
+                        self._order[key] = None
+            elif self._strategy == 'fifo' and isinstance(self._order, deque):
+                self._order.clear()
+                if order_data:
+                    self._order.extend(order_data)
 
             self._dirty = False
+
             _get_logger().info(
-                f"Кэш загружен: {len(self._field_name_cache)} полей"
+                f"Кэш загружен: {len(self._field_name_cache)} полей, {len(self._numeric_cache)} чисел"
             )
             return True
+
         except Exception as e:
             raise WorkerNetCacheError(f"Ошибка загрузки кэша: {e}")
 
@@ -216,7 +235,6 @@ class SmartDataCache:
         return False
 
     def clear(self):
-        """Очищает кэш"""
         fields_before = len(self._field_name_cache)
         numbers_before = len(self._numeric_cache)
 
@@ -226,16 +244,100 @@ class SmartDataCache:
         self._stats.hits = 0
         self._stats.misses = 0
         self._stats.numeric_hits = 0
-        self._access_order.clear()
-        self._insertion_order.clear()
+        if isinstance(self._order, OrderedDict):
+            self._order.clear()
+        elif isinstance(self._order, deque):
+            self._order.clear()
         self._dirty = True
 
         _get_logger().info(
             f"Кэш очищен: удалено {fields_before} полей, {numbers_before} чисел"
         )
 
+    def preload_from_models(self, *model_classes, recursive: bool = True, max_depth: int = 10):
+        if not self._enabled:
+            _get_logger().debug("Кэширование отключено, предзагрузка пропущена")
+            return
+
+        from typing import get_type_hints, get_origin, get_args, List, Dict, Union
+        from ..models.base import BaseModel
+
+        _get_logger().info(f"Предзагрузка {len(model_classes)} моделей в кэш...")
+
+        if not model_classes:
+            _get_logger().warning("Нет моделей для предзагрузки")
+            return
+
+        before = len(self._field_name_cache)
+        processed = set()
+
+        def _unwrap_type(typ) -> type:
+            origin = get_origin(typ)
+            args = get_args(typ)
+            if origin is Union:
+                for arg in args:
+                    if arg is not type(None):
+                        return _unwrap_type(arg)
+                return typ
+            if origin in (list, List) and args:
+                return _unwrap_type(args[0])
+            if origin in (dict, Dict) and len(args) > 1:
+                return _unwrap_type(args[1])
+            return typ
+
+        def _get_fields(model_class) -> list:
+            try:
+                if hasattr(model_class, '__annotations__'):
+                    return list(model_class.__annotations__.keys())
+                elif hasattr(model_class, '__dataclass_fields__'):
+                    return list(model_class.__dataclass_fields__.keys())
+            except:
+                pass
+            return []
+
+        def process_model(model_class, depth=0):
+            if id(model_class) in processed:
+                return
+            processed.add(id(model_class))
+
+            fields = _get_fields(model_class)
+            _get_logger().debug(f"Обработка модели {model_class.__name__}: {len(fields)} полей")
+
+            for field in fields:
+                if field not in self._field_name_cache:
+                    self._field_name_cache[field] = True
+                    if field not in self._stats.access_count:
+                        self._stats.access_count[field] = 0
+                    self._dirty = True
+                    self._add_to_order(field)
+
+            if not recursive or depth >= max_depth:
+                return
+
+            try:
+                hints = get_type_hints(model_class)
+                for field_name, field_type in hints.items():
+                    inner_type = _unwrap_type(field_type)
+                    if (isinstance(inner_type, type) and
+                        hasattr(inner_type, '__base__') and
+                        inner_type.__base__ == BaseModel):
+                        _get_logger().debug(f"  Вложенная модель: {inner_type.__name__}")
+                        process_model(inner_type, depth + 1)
+            except Exception as e:
+                _get_logger().error(f"Ошибка при обработке {model_class.__name__}: {e}")
+
+        for i, model_class in enumerate(model_classes, 1):
+            _get_logger().debug(f"Обработка модели {i}/{len(model_classes)}: {model_class.__name__}")
+            try:
+                process_model(model_class)
+            except Exception as e:
+                _get_logger().error(f"Ошибка предзагрузки {model_class.__name__}: {e}")
+
+        added = len(self._field_name_cache) - before
+        if added:
+            _get_logger().info(f"Добавлено {added} новых полей в кэш (всего: {len(self._field_name_cache)})")
+
     def is_valid_field_name(self, name: str) -> bool:
-        """Проверяет валидность имени поля с кэшированием"""
         if not self._enabled:
             return name and isinstance(name, str) and name.isidentifier()
 
@@ -249,11 +351,11 @@ class SmartDataCache:
                 self._numeric_cache[name] = False
                 self._stats.misses += 1
                 self._dirty = True
-                self._add_to_order(name)        # добавляем в порядки
+                self._add_to_order(name)
                 self._check_size()
             else:
                 self._stats.numeric_hits += 1
-                self._track_access(name)        # обновляем порядок доступа
+                self._track_access(name)
             return False
 
         cached = self._field_name_cache.get(name)
@@ -266,59 +368,59 @@ class SmartDataCache:
         self._field_name_cache[name] = result
         self._stats.misses += 1
         self._track_access(name)
-        self._add_to_order(name)                # новый ключ
+        self._add_to_order(name)
         self._dirty = True
         self._check_size()
 
         return result
 
     def _add_to_order(self, name: str):
-        """Добавляет ключ в порядки для LRU и FIFO"""
-        if self._evict_strategy in ('lru', 'fifo'):
-            self._insertion_order.append(name)
-        if self._evict_strategy == 'lru':
-            self._access_order.append(name)
+        if self._strategy == 'lru' and isinstance(self._order, OrderedDict):
+            self._order[name] = None
+        elif self._strategy == 'fifo' and isinstance(self._order, deque):
+            self._order.append(name)
 
     def _track_access(self, name: str):
-        """Обновляет счётчик доступа и порядок для LRU"""
         if name not in self._stats.access_count:
             self._stats.access_count[name] = 0
         self._stats.access_count[name] += 1
 
-        if self._evict_strategy == 'lru':
-            # Перемещаем ключ в конец (последний использованный)
-            if name in self._access_order:
-                self._access_order.remove(name)
-            self._access_order.append(name)
+        if self._strategy == 'lru' and isinstance(self._order, OrderedDict):
+            if name in self._order:
+                self._order.move_to_end(name)
 
     def _check_size(self):
-        """Проверяет размер кэша и при необходимости запускает очистку."""
         total_size = len(self._field_name_cache) + len(self._numeric_cache)
         if total_size >= self._max_size * self._evict_threshold:
             self._evict_least_used()
 
     def _evict_least_used(self):
-        """Удаляет записи согласно выбранной стратегии"""
         total_size = len(self._field_name_cache) + len(self._numeric_cache)
         if total_size == 0:
             return
 
         to_remove_count = max(1, int(total_size * self._evict_percent))
 
-        # Выбираем ключи для удаления в зависимости от стратегии
-        if self._evict_strategy == 'lfu':
-            # LFU – удаляем самые редко используемые
+        if self._strategy == 'lru' and isinstance(self._order, OrderedDict):
+            to_remove = []
+            for _ in range(to_remove_count):
+                if not self._order:
+                    break
+                key, _ = self._order.popitem(last=False)
+                to_remove.append(key)
+        elif self._strategy == 'fifo' and isinstance(self._order, deque):
+            to_remove = []
+            for _ in range(to_remove_count):
+                if not self._order:
+                    break
+                key = self._order.popleft()
+                to_remove.append(key)
+        else:  # lfu
             sorted_items = sorted(self._stats.access_count.items(), key=lambda x: x[1])
-            to_remove = {name for name, _ in sorted_items[:to_remove_count]}
-        elif self._evict_strategy == 'lru':
-            # LRU – удаляем самые давние (первые в access_order)
-            to_remove = set(self._access_order[:to_remove_count])
-        else:  # fifo (по умолчанию)
-            # FIFO – удаляем самые старые (первые в insertion_order)
-            to_remove = set(self._insertion_order[:to_remove_count])
+            to_remove = [name for name, _ in sorted_items[:to_remove_count]]
 
         removed = 0
-        for name in list(to_remove):
+        for name in to_remove:
             if name in self._field_name_cache:
                 del self._field_name_cache[name]
                 removed += 1
@@ -327,16 +429,19 @@ class SmartDataCache:
                 removed += 1
             if name in self._stats.access_count:
                 del self._stats.access_count[name]
-            # Удаляем из порядков
-            if self._evict_strategy == 'lru' and name in self._access_order:
-                self._access_order.remove(name)
-            if self._evict_strategy == 'fifo' and name in self._insertion_order:
-                self._insertion_order.remove(name)
+            if self._strategy == 'lru' and isinstance(self._order, OrderedDict):
+                if name in self._order:
+                    del self._order[name]
+            elif self._strategy == 'fifo' and isinstance(self._order, deque):
+                try:
+                    self._order.remove(name)
+                except ValueError:
+                    pass
 
         if removed > 0:
             self._dirty = True
             _get_logger().debug(
-                f"Кэш очищен (стратегия {self._evict_strategy.upper()}): "
+                f"Кэш очищен (стратегия {self._strategy.upper()}): "
                 f"удалено {removed} записей (размер до: {total_size}, после: {total_size - removed})"
             )
 
@@ -352,7 +457,9 @@ class SmartDataCache:
             'field_cache_size': len(self._field_name_cache),
             'numeric_cache_size': len(self._numeric_cache),
             'max_size': self._max_size,
-            'evict_strategy': self._evict_strategy,
+            'evict_strategy': self._strategy,
+            'evict_percent': self._evict_percent,
+            'evict_threshold': self._evict_threshold,
             'hit_rate': (self._stats.hits / total * 100) if total > 0 else 0,
             'last_save': self._stats.last_save_time,
             'last_load': self._stats.last_load_time,
@@ -360,10 +467,8 @@ class SmartDataCache:
         }
 
     def set_max_size(self, size: int):
-        """Устанавливает максимальный размер кэша (обновляет конфиг и себя)"""
         config_manager = _get_config_manager()
-        config_manager.cache_max_size = max(1000, min(size, 100000))
+        config_manager.cache_max_size = max(1000, size)
 
 
-# Глобальный экземпляр (синглтон для текущего процесса)
 cache = SmartDataCache()
