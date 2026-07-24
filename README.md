@@ -2,6 +2,8 @@
 
 Высокопроизводительный Python клиент для REST API системы WorkerNet с интеллектуальной системой трансформации и типизации сложных JSON структур
 
+[![SimpleWorkerNet](src/assets/badge.svg)](https://pypi.org/project/simpleworkernet/)
+
 [![Tag](https://img.shields.io/github/v/tag/busy4beaver/simpleworkernet?color=00c2e8)](#)
 [![Supported Python versions](https://img.shields.io/pypi/pyversions/simpleworkernet.svg?logo=python&logoColor=FFE873)](https://pypi.org/project/simpleworkernet/)
 [![Licence](https://img.shields.io/github/license/busy4beaver/simpleworkernet.svg)](LICENSE)  
