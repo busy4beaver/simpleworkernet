@@ -3,7 +3,6 @@
 Высокопроизводительный Python клиент для REST API системы WorkerNet с интеллектуальной системой трансформации и типизации сложных JSON структур
 
 [![Tag](https://img.shields.io/github/v/tag/busy4beaver/simpleworkernet?color=00c2e8)](#)
-[![Downloads](https://img.shields.io/github/downloads/busy4beaver/simpleworkernet/total?color=c87bff)](#)
 [![YooMoney](https://img.shields.io/badge/Donation-Yoo.money-blue.svg)](https://yoomoney.ru/to/4100118099549894) 
 [![Boosty](https://img.shields.io/badge/Boosty-donate-orange.svg)](https://boosty.to/busybeaver/donate)
 
@@ -29,6 +28,7 @@
     - [Просмотр текущей конфигурации](#просмотр-текущей-конфигурации)
     - [Раздельные уровни логирования](#раздельные-уровни-логирования)
     - [Настройка кэширования](#настройка-кэширования)
+    - [Пример настройки для высокой производительности](#пример-настройки-для-высокой-производительности)
     - [Настройка клиента API](#настройка-клиента-api)
     - [Настройки SmartData](#настройки-smartdata)
     - [Массовое обновление](#массовое-обновление)
@@ -45,7 +45,6 @@
     - [Работа с сессионными логами](#работа-с-сессионными-логами)
     - [Структура файлов логов](#структура-файлов-логов)
   - [Кэширование](#кэширование)
-    - [Настройка кэша](#настройка-кэша)
     - [Управление кэшем через SmartData](#управление-кэшем-через-smartdata)
     - [Предзагрузка кэша из моделей](#предзагрузка-кэша-из-моделей)
     - [Умное сохранение](#умное-сохранение)
@@ -189,14 +188,14 @@ active_customers = customers.where('state_id', 2)
 
 ## <a name="configuration"></a>Конфигурация
 
-ConfigManager - центральный элемент управления всеми настройками библиотеки. Все изменения применяются немедленно к текущей сессии.
+ConfigManager — центральный элемент управления всеми настройками библиотеки. Все изменения применяются немедленно к текущей сессии. Для сохранения настроек между запусками используйте метод save().
 
 ### Просмотр текущей конфигурации
 ```python
 
 from simpleworkernet import config_manager
 
-# Просмотр в лог
+# Вывод в лог
 config_manager.show_config()
 
 # Получение как строки
@@ -209,27 +208,87 @@ print(config_str)
 
 from simpleworkernet import config_manager
 
-# Разные уровни для консоли и файла
-config_manager.console_level = 'INFO'     # В консоль: INFO и выше
-config_manager.file_level = 'DEBUG'       # В файл: DEBUG и выше
+### Разные уровни для консоли и файла
+config_manager.console_level = 'INFO'      # В консоль: INFO и выше
+config_manager.file_level = 'DEBUG'        # В файл: DEBUG и выше
 
 # Включение/отключение вывода
-config_manager.console_output = True      # Включить вывод в консоль
-config_manager.log_to_file = True         # Включить запись в файл
-config_manager.max_log_files = 20         # Максимальное количество файлов логов
+config_manager.console_output = True       # Вывод в консоль
+config_manager.log_to_file = True          # Запись в файл
+config_manager.max_log_files = 20          # Максимальное количество файлов логов
 ```
 
 ### Настройка кэширования
+
+SmartDataCache кэширует результаты проверок имён полей, что значительно ускоряет работу SmartData при обработке больших объёмов данных. Поддерживаются три стратегии очистки: LFU, LRU и FIFO.
 ```python
+
+from simpleworkernet import config_manager
 
 # Включение/отключение кэша
 config_manager.cache_enabled = True
 
-# Размер кэша и стратегия очистки
+# Максимальный размер кэша (количество записей)
 config_manager.cache_max_size = 100000
-config_manager.cache_evict_strategy = "lru"  # 'lru', 'lfu', 'fifo'
 
-# Автосохранение (сохраняет только при реальных изменениях)
+# Стратегия очистки:
+#   'lfu'  – удалять наименее часто используемые (по умолчанию)
+#   'lru'  – удалять давно не использовавшиеся
+#   'fifo' – удалять самые старые (по времени добавления)
+config_manager.cache_evict_strategy = 'lfu'
+
+# Порог заполнения (доля от max_size), при превышении которого запускается очистка.
+# По умолчанию 0.9 (очистка при заполнении ≥ 90% от max_size).
+config_manager.cache_evict_threshold = 0.9
+
+# Процент записей, удаляемых за одну очистку (от текущего размера).
+# По умолчанию 0.2 (удаляется 20% записей).
+config_manager.cache_evict_percent = 0.2
+
+# Автосохранение кэша (сохраняет только при реальных изменениях)
+config_manager.cache_auto_save = True
+```
+
+Как работает очистка кэша
+
+    Кэш заполняется до тех пор, пока общее количество записей не достигнет max_size * evict_threshold (по умолчанию 90% от максимума).
+
+    При добавлении новой записи, если порог превышен, запускается очистка.
+
+    За один раз удаляется evict_percent (по умолчанию 20%) от текущего размера кэша (а не от максимума), чтобы очистка была массовой и редкой.
+
+    Какая именно часть записей удаляется, зависит от выбранной стратегии:
+
+        LFU (Least Frequently Used) – удаляются записи с наименьшей частотой обращений.
+
+        LRU (Least Recently Used) – удаляются записи, к которым дольше всего не обращались.
+
+        FIFO (First In, First Out) – удаляются самые старые записи (по времени добавления).
+
+Рекомендации по настройке для больших данных
+
+    Увеличьте cache_max_size – если вы обрабатываете десятки тысяч уникальных полей, установите размер 200 000–500 000 (при достаточной памяти).
+
+    Повысьте cache_evict_threshold до 0.95 – очистка будет запускаться реже, только при 95% заполнении.
+
+    Увеличьте cache_evict_percent до 0.3–0.4 – за одну очистку будет удаляться больше записей, что снизит общее число очисток.
+
+    Выберите стратегию под свой сценарий:
+
+        Для данных с «горячими» полями, которые часто используются, лучше подходит LFU.
+
+        Для потоковых данных, где важна свежесть, используйте LRU.
+
+        Для простого предсказуемого поведения – FIFO.
+
+### Пример настройки для высокой производительности
+```python
+
+config_manager.cache_enabled = True
+config_manager.cache_max_size = 300000
+config_manager.cache_evict_strategy = 'lfu'
+config_manager.cache_evict_threshold = 0.95
+config_manager.cache_evict_percent = 0.3
 config_manager.cache_auto_save = True
 ```
 
@@ -237,9 +296,9 @@ config_manager.cache_auto_save = True
 ```python
 
 # Таймауты и повторы
-config_manager.default_timeout = 60       # Таймаут запроса в секундах
-config_manager.max_retries = 3            # Количество повторов при ошибке
-config_manager.user_agent = "MyApp/1.0"   # User-Agent для запросов
+config_manager.default_timeout = 60        # Таймаут запроса в секундах
+config_manager.max_retries = 3             # Количество повторов при ошибке
+config_manager.user_agent = "MyApp/1.0"    # User-Agent для запросов
 ```
 
 ### Настройки SmartData
@@ -259,18 +318,21 @@ config_manager.update(
     log_to_file=True,
     cache_enabled=True,
     cache_max_size=100000,
+    cache_evict_strategy='lru',
+    cache_evict_threshold=0.9,
+    cache_evict_percent=0.2,
     default_timeout=60,
-    save=True  # сразу сохранить в файл
+    save=True   # сразу сохранить в файл
 )
 ```
 
 ### Сохранение и сброс
 ```python
 
-# Сохранение текущей конфигурации в файл
+# Сохранение текущей конфигурации в файл (для использования в следующих запусках)
 config_manager.save()
 
-# Сброс на значения по умолчанию
+# Сброс на значения по умолчанию (не сохраняется, если save=False)
 config_manager.reset(save=True)
 ```
 
@@ -279,25 +341,40 @@ config_manager.reset(save=True)
 
 from simpleworkernet import config_manager
 
-# Настройка логирования (разные уровни)
-config_manager.console_level = 'INFO'      # В консоль только info и выше
-config_manager.file_level = 'DEBUG'        # В файл всё, включая debug
+# ----- Логирование (разные уровни) -----
+config_manager.console_level = 'INFO'      # В консоль – только INFO и выше
+config_manager.file_level = 'DEBUG'        # В файл – всё, включая DEBUG
 config_manager.console_output = True
 config_manager.log_to_file = True
 config_manager.max_log_files = 30
 
-# Настройка кэша
+# ----- Кэш (оптимизация для большого объёма данных) -----
 config_manager.cache_enabled = True
-config_manager.cache_max_size = 50000
-config_manager.cache_evict_strategy = 'lru'
+config_manager.cache_max_size = 200000          # Увеличенный размер
+config_manager.cache_evict_strategy = 'lfu'     # LFU для часто используемых полей
+config_manager.cache_evict_threshold = 0.95     # Очистка при заполнении на 95%
+config_manager.cache_evict_percent = 0.3        # Удалять 30% записей за раз
+config_manager.cache_auto_save = True
 
-# Настройка клиента
+# ----- Клиент API -----
 config_manager.default_timeout = 45
 config_manager.max_retries = 3
 
 # Сохраняем настройки для будущих запусков
 config_manager.save()
 ```
+
+Примечания
+
+    Все изменения применяются немедленно – перезапуск не требуется.
+
+    Для постоянного сохранения настроек вызовите config_manager.save().
+
+    Если вы изменяете настройки кэша во время работы, они будут применены к текущему экземпляру кэша автоматически.
+
+    Кэш сохраняется на диск только при наличии реальных изменений (флаг _dirty), что экономит ресурсы.
+
+    Параметр cache_evict_strategy теперь полностью работоспособен и влияет на поведение очистки кэша.
 
 ## <a name="core-components"></a>Основные компоненты
 
@@ -482,18 +559,6 @@ new_session = log.new_session()
 ```
 
 ## <a name="caching"></a>Кэширование
-
-### Настройка кэша
-```python
-
-from simpleworkernet import config_manager
-
-# Основные настройки
-config_manager.cache_enabled = True
-config_manager.cache_max_size = 100000
-config_manager.cache_auto_save = True
-config_manager.cache_evict_strategy = "lru"  # 'lru', 'lfu', 'fifo'
-```
 
 ### Управление кэшем через SmartData
 ```python

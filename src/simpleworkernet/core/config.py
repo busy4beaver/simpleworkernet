@@ -56,7 +56,7 @@ def get_app_logs_dir(app_name: str) -> Path:
 class CacheConfig:
     """Конфигурация кэша для SmartDataCache"""
     enabled: bool = True
-    max_size: int = 500000
+    max_size: int = 50000
     evict_strategy: CacheEvictStrategy = 'lru'   
     evict_threshold: float = 0.9                 # порог заполнения
     evict_percent: float = 0.2                   # доля удаляемых записей
